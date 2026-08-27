@@ -357,7 +357,7 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
         /** @var OptionUrl $optionUrl */
         $optionUrl = container()->get(OptionUrl::class);
 
-        $url = $optionUrl->getFrontendUrl('dswh/magicsmtp');
+        $url = $optionUrl->getFrontendUrl('dswh/' . (int)$this->server_id);
         if (is_cli()) {
             return $url;
         }

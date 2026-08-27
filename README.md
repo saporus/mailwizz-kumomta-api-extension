@@ -29,14 +29,14 @@ This extension does not guarantee inbox placement or eliminate SMTP from final d
 
 - MailWizz 2.7.3
 - PHP 8.1 for both PHP-FPM and CLI/cron processing
-- Extension version 1.1.1
+- Extension version 1.1.2
 
 Other MailWizz or PHP combinations have not yet been included in the verified compatibility matrix.
 
 ## Installation
 
 1. Back up your MailWizz files and database.
-2. Download `magicsmtp-1.1.1.zip` from the [latest GitHub release](https://github.com/saporus/mailwizz-kumomta-api-extension/releases/latest).
+2. Download `magicsmtp-1.1.2.zip` from the [latest GitHub release](https://github.com/saporus/mailwizz-kumomta-api-extension/releases/latest).
 3. In MailWizz, open **Backend > Extend > Extensions**.
 4. Upload the release ZIP and enable **Magic SMTP Web API Delivery Server**.
 5. Create a delivery server of type **Magic SMTP Web API**.
@@ -45,11 +45,13 @@ Other MailWizz or PHP combinations have not yet been included in the verified co
 8. Configure the displayed MailWizz webhook URL in the Enterprise KumoMTA UI.
 9. Validate the delivery server with a controlled test before assigning it to campaigns.
 
-### MailWizz controller compatibility note
+### MailWizz webhook integration
 
-MailWizz 2.7.3 does not expose the legacy `dswh/magicsmtp` webhook action by default. When the extension first runs, it inserts only the extension-owned `actionMagicsmtp()` method into MailWizz's frontend `DswhController.php` if that method is missing.
+The extension registers its processor through MailWizz's supported `dswh_process_map` filter. The generated callback uses MailWizz's standard `/dswh/{delivery-server-id}` endpoint. No MailWizz core file is read, patched, or replaced.
 
-The repository does not include or redistribute MailWizz's controller source. A MailWizz update may replace the small inserted method; after an update, verify the extension and webhook endpoint again.
+### Upgrading from 1.1.1
+
+Version 1.1.2 does not modify or automatically clean an existing MailWizz core file. If version 1.1.1 previously inserted the legacy `actionMagicsmtp()` method, switch the Enterprise webhook to the new callback URL displayed by the delivery server first. Restore the MailWizz controller only from a trusted backup or matching official MailWizz package after confirming the standard DSWH callback works.
 
 ## Configuration fields
 
@@ -60,6 +62,17 @@ The repository does not include or redistribute MailWizz's controller source. A 
 - **Disable SSL Verification:** leave set to **No** in production
 
 Never publish or commit a real tenant API key.
+
+## Source verification
+
+Run the source contract checks with:
+
+```bash
+php tests/source_contract_test.php
+php tests/hook_runtime_test.php
+```
+
+The checks confirm that the supported DSWH hook and JSON renderer are used, that callback dispatch preserves the delivery-server ID, and that no MailWizz core controller is bundled or modified.
 
 ## Links
 

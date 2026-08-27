@@ -16,7 +16,7 @@ class MagicsmtpExt extends ExtensionInit
     public $description = 'Connects MailWizz to the Omni Knoweth Enterprise KumoMTA API, including webhook processing.';
 
     // Extension version
-    public $version = '1.1.1';
+    public $version = '1.1.2';
 
     // Minimum MailWizz version required
     public $minAppVersion = '2.7.3';
@@ -53,21 +53,8 @@ class MagicsmtpExt extends ExtensionInit
         // Map the configuration form view
         Yii::app()->hooks->addFilter('delivery_servers_form_view_file', array($this, '_registerDeliveryServerFormView'));
 
-        // Add the webhook action to MailWizz's frontend controller when it is missing.
-        // The repository intentionally does not redistribute MailWizz's proprietary
-        // controller source; only this small extension-owned method is inserted.
-        $destController = Yii::getPathOfAlias('common') . '/../frontend/controllers/DswhController.php';
-        if (file_exists($destController)) {
-            $destContent = file_get_contents($destController);
-            if (strpos($destContent, 'actionMagicsmtp') === false) {
-                $target = 'public function actionNewsman()';
-                if (strpos($destContent, $target) !== false) {
-                    $replacement = "    /**\n     * Process Magic SMTP (KumoMTA) Webhooks\n     */\n    public function actionMagicsmtp()\n    {\n        \$server = new DeliveryServerMagicSmtp();\n        \$server->handleCallback(request());\n    }\n\n    public function actionNewsman()";
-                    $newContent = str_replace($target, $replacement, $destContent);
-                    @file_put_contents($destController, $newContent);
-                }
-            }
-        }
+        // Register webhook processing through MailWizz's supported DSWH hook.
+        Yii::app()->hooks->addFilter('dswh_process_map', array($this, '_registerDswhProcessor'));
     }
 
     /**
@@ -78,6 +65,37 @@ class MagicsmtpExt extends ExtensionInit
         $types['magic-smtp'] = 'DeliveryServerMagicSmtp';
         $types['magic-smtp-web-api'] = 'DeliveryServerMagicSmtpWebApi';
         return $types;
+    }
+
+    /**
+     * Register the Magic SMTP webhook processor in MailWizz's DSWH map.
+     *
+     * @param array          $map
+     * @param DeliveryServer $server
+     * @param Controller     $controller
+     * @return array
+     */
+    public function _registerDswhProcessor(array $map, $server, $controller)
+    {
+        if (in_array($server->type, array('magic-smtp', 'magic-smtp-web-api'), true)) {
+            $map[$server->type] = array($this, '_processDswhWebhook');
+        }
+
+        return $map;
+    }
+
+    /**
+     * Process a Magic SMTP webhook selected by MailWizz's DSWH controller.
+     *
+     * @param DeliveryServer $server
+     * @param Controller     $controller
+     * @return void
+     */
+    public function _processDswhWebhook($server, $controller)
+    {
+        $handler = new DeliveryServerMagicSmtp();
+        $handler->server_id = (int)$server->server_id;
+        $handler->handleCallback(request());
     }
 
     /**

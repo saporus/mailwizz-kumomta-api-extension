@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2 - 2026-08-28
+
+- Register webhook processing through MailWizz's `dswh_process_map` filter.
+- Use MailWizz's standard `/dswh/{delivery-server-id}` callback URL.
+- Remove all runtime modification of MailWizz's `DswhController.php`.
+- Render webhook responses through `controller()->renderJson()`.
+- Document the callback migration required when upgrading from 1.1.1.
+
 ## 1.1.1 - 2026-08-27
 
 - Publish the extension source for transparent review.

@@ -179,7 +179,7 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         /** @var OptionUrl $optionUrl */
         $optionUrl = container()->get(OptionUrl::class);
 
-        $url = $optionUrl->getFrontendUrl('dswh/magicsmtp');
+        $url = $optionUrl->getFrontendUrl('dswh/' . (int)$this->server_id);
         if (is_cli()) {
             return $url;
         }
@@ -304,13 +304,11 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
      */
     protected function outputWebhookResponse($ok, $message)
     {
-        header('Content-Type: application/json');
-        echo json_encode(array(
+        controller()->renderJson(array(
             'ok'      => (bool)$ok,
             'message' => (string)$message,
             'server'  => isset($this->server_id) ? $this->server_id : 0,
             'type'    => $this->getType(),
         ));
-        Yii::app()->end();
     }
 }
