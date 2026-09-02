@@ -260,6 +260,35 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
     }
 
     /**
+     * Build a stable, opaque idempotency key for a campaign/subscriber send.
+     *
+     * MailWizz can execute the same recipient again after an ambiguous HTTP
+     * timeout. The Enterprise API scopes this key to the tenant and retains
+     * the first result, preventing a retry from injecting a duplicate message.
+     * Direct/test sends without both identifiers intentionally remain
+     * non-idempotent because they do not represent a campaign recipient.
+     *
+     * @param array $params
+     * @return string
+     */
+    protected function buildIdempotencyKey(array $params): string
+    {
+        $campaignUid = '';
+        if (!empty($params['campaignUid'])) {
+            $campaignUid = trim((string)$params['campaignUid']);
+        } elseif (isset($params['campaign']) && is_object($params['campaign']) && !empty($params['campaign']->campaign_uid)) {
+            $campaignUid = trim((string)$params['campaign']->campaign_uid);
+        }
+
+        $subscriberUid = !empty($params['subscriberUid']) ? trim((string)$params['subscriberUid']) : '';
+        if ($campaignUid === '' || $subscriberUid === '') {
+            return '';
+        }
+
+        return 'mailwizz:send:v1:' . hash('sha256', $campaignUid . "\0" . $subscriberUid);
+    }
+
+    /**
      * Sends the email campaign via KumoMTA injection HTTP API.
      *
      * @param array $params
@@ -300,6 +329,16 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
                 'content'         => $rawMessage,
             ];
 
+            $campaignUid = '';
+            if (!empty($params['campaignUid'])) {
+                $campaignUid = trim((string)$params['campaignUid']);
+            } elseif (isset($params['campaign']) && is_object($params['campaign']) && !empty($params['campaign']->campaign_uid)) {
+                $campaignUid = trim((string)$params['campaign']->campaign_uid);
+            }
+            if ($campaignUid !== '') {
+                $payload['campaign'] = $campaignUid;
+            }
+
             // We pass egress_pool and subscriber_uid in the recipient metadata
             // so they are available in Lua hooks via msg:get_meta('egress_pool') / msg:get_meta('subscriber_uid')
             $extra = [];
@@ -316,6 +355,14 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
             $options = [
                 'json' => $payload,
             ];
+
+            $idempotencyKey = $this->buildIdempotencyKey($params);
+            if ($idempotencyKey !== '') {
+                // Send both forms supported by the Enterprise API. The opaque
+                // hash avoids exposing MailWizz campaign/subscriber IDs.
+                $options['headers']['Idempotency-Key'] = $idempotencyKey;
+                $options['json']['IdempotencyKey'] = $idempotencyKey;
+            }
 
             // Authenticate to the panel gateway with the tenant API key (Postmark-style):
             // no Kumo SMTP/Basic credentials needed -- the key identifies the tenant.
@@ -335,6 +382,26 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
             } else {
                 throw new Exception('Invalid response status code from KumoMTA: ' . $response->getStatusCode());
             }
+        } catch (GuzzleHttp\Exception\RequestException $e) {
+            $response = $e->getResponse();
+            $statusCode = $response ? (int)$response->getStatusCode() : 0;
+            $responseBody = $response ? (string)$response->getBody() : '';
+            $responseData = json_decode($responseBody, true);
+            $explicitRetryable = is_array($responseData) && !empty($responseData['retryable']);
+            $transientStatus = $statusCode === 0 || in_array($statusCode, [408, 425, 429], true) || $statusCode >= 500;
+
+            if ($explicitRetryable || $transientStatus) {
+                $detail = is_array($responseData)
+                    ? (string)($responseData['error'] ?? $responseData['detail'] ?? $e->getMessage())
+                    : $e->getMessage();
+                throw new Exception(
+                    sprintf('Temporary Magic SMTP API failure (HTTP %d): %s', $statusCode, $detail),
+                    99,
+                    $e
+                );
+            }
+
+            $this->getMailer()->addLog($e->getMessage());
         } catch (Exception $e) {
             $this->getMailer()->addLog($e->getMessage());
         }

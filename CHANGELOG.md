@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.4 - 2026-09-02
+
+- Propagate temporary API transport failures, explicit retryable responses, and HTTP 408/425/429/5xx responses using MailWizz's safe-retry exception code instead of recording immediate giveups.
+- Keep non-retryable API rejections on the existing permanent-failure path.
+- Document and include the narrow MailWizz 2.7.3 console-command bridge required to preserve the retry signal.
+
+## 1.1.3 - 2026-08-28
+
+- Add a deterministic, tenant-scoped idempotency key for each campaign/subscriber submission.
+- Send the opaque key in both the `Idempotency-Key` header and API body fallback.
+- Forward the MailWizz campaign UID to the Enterprise API for message correlation and tracking.
+- Add runtime coverage for stable keys, identity separation, fallbacks, identifier privacy, and the final API request contract.
+
 ## 1.1.2 - 2026-08-28
 
 - Register webhook processing through MailWizz's `dswh_process_map` filter.

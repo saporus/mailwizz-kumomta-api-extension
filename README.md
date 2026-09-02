@@ -17,6 +17,7 @@ The Enterprise SaaS backend is not included in this repository.
 ## Benefits
 
 - Direct MailWizz to KumoMTA API submission
+- Duplicate-safe campaign/subscriber submission keys for ambiguous HTTP timeouts
 - Faster handoff from the campaign application to the delivery engine
 - Lower application-server SMTP connection and queue overhead
 - Tenant-aware API authentication
@@ -29,17 +30,23 @@ This extension does not guarantee inbox placement or eliminate SMTP from final d
 
 - MailWizz 2.7.3
 - PHP 8.1 for both PHP-FPM and CLI/cron processing
-- Extension version 1.1.2
+- Extension version 1.1.4
 
 Other MailWizz or PHP combinations have not yet been included in the verified compatibility matrix.
 
 ## Installation
 
 1. Back up your MailWizz files and database.
-2. Download `magicsmtp-1.1.2.zip` from the [latest GitHub release](https://github.com/saporus/mailwizz-kumomta-api-extension/releases/latest).
+2. Download `magicsmtp-1.1.4.zip` from the [latest GitHub release](https://github.com/saporus/mailwizz-kumomta-api-extension/releases/latest).
 3. In MailWizz, open **Backend > Extend > Extensions**.
 4. Upload the release ZIP and enable **Magic SMTP Web API Delivery Server**.
 5. Create a delivery server of type **Magic SMTP Web API**.
+
+### Temporary API failure retry bridge
+
+Version 1.1.4 propagates temporary transport failures and HTTP 408/425/429/5xx responses with MailWizz's existing safe-retry exception code. MailWizz 2.7.3 catches delivery-server exceptions inside `SendCampaignsCommand`, so the small reviewed bridge in [`patches/mailwizz-2.7.3-transient-retry.patch`](patches/mailwizz-2.7.3-transient-retry.patch) is also required for temporary API failures to stop the current batch instead of becoming terminal giveups.
+
+Apply the patch only to a matching MailWizz 2.7.3 installation after taking a backup, run PHP lint on the result, and keep the backup for rollback. Recheck this integration after every MailWizz upgrade. Permanent non-retryable rejections continue through MailWizz's normal failure path.
 6. Enter the Enterprise API endpoint and tenant API key supplied by Omni Knoweth.
 7. Keep SSL verification enabled in production.
 8. Configure the displayed MailWizz webhook URL in the Enterprise KumoMTA UI.
@@ -70,9 +77,11 @@ Run the source contract checks with:
 ```bash
 php tests/source_contract_test.php
 php tests/hook_runtime_test.php
+php tests/idempotency_runtime_test.php
+php tests/send_runtime_test.php
 ```
 
-The checks confirm that the supported DSWH hook and JSON renderer are used, that callback dispatch preserves the delivery-server ID, and that no MailWizz core controller is bundled or modified.
+The checks confirm that the supported DSWH hook and JSON renderer are used, that callback dispatch preserves the delivery-server ID, that campaign sends receive stable opaque idempotency keys, and that no MailWizz core controller is bundled or modified.
 
 ## Links
 
