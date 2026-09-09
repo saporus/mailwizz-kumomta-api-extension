@@ -53,6 +53,10 @@ class MagicsmtpExt extends ExtensionInit
         // Map the configuration form view
         Yii::app()->hooks->addFilter('delivery_servers_form_view_file', array($this, '_registerDeliveryServerFormView'));
 
+        // Explain MTA acceptance in delivery reports without changing send outcomes.
+        require_once dirname(__FILE__) . '/MagicSmtpDeliveryReportClarity.php';
+        Yii::app()->hooks->addFilter('grid_view_properties', array('MagicSmtpDeliveryReportClarity', 'gridProperties'));
+
         // Register webhook processing through MailWizz's supported DSWH hook.
         Yii::app()->hooks->addFilter('dswh_process_map', array($this, '_registerDswhProcessor'));
     }

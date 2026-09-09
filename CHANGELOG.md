@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Explain successful Magic SMTP submissions in the campaign delivery report with an accessible tooltip: sending-server acceptance is separate from final recipient delivery. Status values, exports, and retry behavior are unchanged; no MailWizz core patch is required.
+
 ## 1.1.4 - 2026-09-02
 
 - Propagate temporary API transport failures, explicit retryable responses, and HTTP 408/425/429/5xx responses using MailWizz's safe-retry exception code instead of recording immediate giveups.
