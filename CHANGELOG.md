@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.1.5 - 2026-09-19
+
+- Include the production-tested shared Retry-After cooldown, isolated by API endpoint and tenant key, without sleeping campaign workers.
+- Retry explicit recovery concurrency refusals after 2-4 seconds when the API requests a short delay; retain longer existing pauses and the 60-second minimum for memory pressure, exhausted budgets, and unknown refusals.
+- Keep campaign recipients retryable with exception code 99; handle connection exceptions and display temporary-delay details in interactive forms instead of a generic Error 500.
+- Preserve campaign/subscriber idempotency and permanent-error handling. Include the cooldown helper in the installable package.
+- Reconcile the stale installed version label with the packaged source. No admission thresholds, campaign state, provider rates or holds are changed.
+
 
 - Explain successful Magic SMTP submissions in the campaign delivery report with an accessible tooltip: sending-server acceptance is separate from final recipient delivery. Status values, exports, and retry behavior are unchanged; no MailWizz core patch is required.
 

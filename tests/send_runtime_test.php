@@ -43,6 +43,8 @@ namespace GuzzleHttp {
             return $this->status;
         }
 
+        public function getHeaderLine($name) { return "60"; }
+
         public function getBody()
         {
             return $this->body;
@@ -70,6 +72,15 @@ namespace GuzzleHttp\Exception {
 
 namespace {
     define('MW_PATH', __DIR__);
+    $runtime = sys_get_temp_dir() . '/magic-release-send-' . bin2hex(random_bytes(8));
+    mkdir($runtime, 0700);
+    register_shutdown_function(static function () use ($runtime) {
+        foreach (glob($runtime . '/*') as $file) unlink($file);
+        rmdir($runtime);
+    });
+    function is_cli() { return true; }
+    class Yii { static function getPathOfAlias($alias) { return $GLOBALS['runtime']; } }
+
 
     class FakeMailer
     {
@@ -217,6 +228,7 @@ namespace {
     $checks['retryable HTTP 503 propagates code 99'] = $retryException instanceof \Exception && $retryException->getCode() === 99;
     $checks['retryable failure retains a useful message'] = $retryException instanceof \Exception && strpos($retryException->getMessage(), 'inject_rejected') !== false;
 
+    foreach (glob($runtime . '/*') as $file) unlink($file);
     \GuzzleHttp\Client::$mode = 'permanent-400';
     $permanentResult = $server->send(array(
         'from' => array('sender@example.test' => 'Sender'),

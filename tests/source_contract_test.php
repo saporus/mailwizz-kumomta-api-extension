@@ -6,7 +6,7 @@ $smtpModel = file_get_contents($root . '/magicsmtp/models/DeliveryServerMagicSmt
 $webApiModel = file_get_contents($root . '/magicsmtp/models/DeliveryServerMagicSmtpWebApi.php');
 
 $checks = array(
-    'release version is 1.1.4' => strpos($bootstrap, "public \$version = '1.1.4';") !== false,
+    'release version is 1.1.5' => strpos($bootstrap, "public \$version = '1.1.5';") !== false,
     'DSWH filter is registered' => strpos($bootstrap, "addFilter('dswh_process_map'") !== false,
     'DSWH processor callback is mapped' => strpos($bootstrap, "array(\$this, '_processDswhWebhook')") !== false,
     'MailWizz core controller is not modified' => strpos($bootstrap, 'file_put_contents') === false,
@@ -19,7 +19,7 @@ $checks = array(
     'Web API sends an idempotency body fallback' => strpos($webApiModel, "['json']['IdempotencyKey']") !== false,
     'Web API forwards the campaign UID' => strpos($webApiModel, "['campaign'] = \$campaignUid") !== false,
     'Web API identifies transient HTTP failures' => strpos($webApiModel, 'GuzzleHttp\\Exception\\RequestException') !== false,
-    'Web API marks transient failures for safe MailWizz retry' => strpos($webApiModel, "Temporary Magic SMTP API failure") !== false && strpos($webApiModel, "                    99,") !== false,
+    'Web API marks transient failures for safe MailWizz retry' => strpos($webApiModel, 'throw new Exception($message, 99)') !== false,
     'MailWizz retry bridge is documented and included' => file_exists($root . '/patches/mailwizz-2.7.3-transient-retry.patch'),
 );
 

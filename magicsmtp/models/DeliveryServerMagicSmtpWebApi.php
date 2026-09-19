@@ -11,6 +11,8 @@ if (!defined('MW_PATH')) {
  * Author: Omni Knoweth
  * Installation: Place in apps/common/models/ and register in DeliveryServer::getTypesMapping().
  */
+require_once __DIR__ . '/MagicSmtpCooldown.php';
+
 class DeliveryServerMagicSmtpWebApi extends DeliveryServer
 {
     /**
@@ -294,8 +296,26 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
      * @param array $params
      * @return array
      */
+    protected function temporaryAdmissionFailure(string $message): array
+    {
+        // Campaign workers require code 99 to retain the recipient in the queue.
+        if (is_cli()) {
+            throw new Exception($message, 99);
+        }
+        // Interactive send forms already render mailer logs on an empty result.
+        $this->getMailer()->addLog($message);
+        return [];
+    }
+
     public function send(array $params = []): array
     {
+        $cooldown = new MagicSmtpCooldown(Yii::getPathOfAlias('common.runtime'), (string)$this->hostname, (string)$this->password);
+        try { $wait = $cooldown->remaining(); }
+        catch (Throwable $e) { return $this->temporaryAdmissionFailure('Temporary sending delay: retry coordination is unavailable. Please try again in one minute.'); }
+        if ($wait > 0) {
+            return $this->temporaryAdmissionFailure(sprintf('Sending is temporarily delayed. Retry in %d seconds; campaign recipients remain queued.', $wait));
+        }
+
         $params = (array)hooks()->applyFilters('delivery_server_before_send_email', $this->getParamsArray($params), $this);
 
         if (!ArrayHelper::hasKeys($params, ['from', 'to', 'subject', 'body'])) {
@@ -382,8 +402,8 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
             } else {
                 throw new Exception('Invalid response status code from KumoMTA: ' . $response->getStatusCode());
             }
-        } catch (GuzzleHttp\Exception\RequestException $e) {
-            $response = $e->getResponse();
+        } catch (GuzzleHttp\Exception\RequestException | GuzzleHttp\Exception\ConnectException $e) {
+            $response = method_exists($e, 'getResponse') ? $e->getResponse() : null;
             $statusCode = $response ? (int)$response->getStatusCode() : 0;
             $responseBody = $response ? (string)$response->getBody() : '';
             $responseData = json_decode($responseBody, true);
@@ -394,11 +414,10 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
                 $detail = is_array($responseData)
                     ? (string)($responseData['error'] ?? $responseData['detail'] ?? $e->getMessage())
                     : $e->getMessage();
-                throw new Exception(
-                    sprintf('Temporary Magic SMTP API failure (HTTP %d): %s', $statusCode, $detail),
-                    99,
-                    $e
-                );
+                try {
+                    $wait = $cooldown->defer($response ? $response->getHeaderLine('Retry-After') : '', is_array($responseData) ? ($responseData['retryAfter'] ?? null) : null, is_array($responseData) ? $responseData : null, $statusCode);
+                } catch (Throwable $failure) { $wait = 60; }
+                return $this->temporaryAdmissionFailure(sprintf('Sending is temporarily delayed (HTTP %d: %s). Retry in %d seconds; campaign recipients remain queued.', $statusCode, $detail, $wait));
             }
 
             $this->getMailer()->addLog($e->getMessage());

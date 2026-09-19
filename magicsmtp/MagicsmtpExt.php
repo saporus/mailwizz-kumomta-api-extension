@@ -16,7 +16,7 @@ class MagicsmtpExt extends ExtensionInit
     public $description = 'Connects MailWizz to the Omni Knoweth Enterprise KumoMTA API, including webhook processing.';
 
     // Extension version
-    public $version = '1.1.4';
+    public $version = '1.1.5';
 
     // Minimum MailWizz version required
     public $minAppVersion = '2.7.3';
