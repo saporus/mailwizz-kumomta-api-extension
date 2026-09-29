@@ -15,6 +15,12 @@ require_once __DIR__ . '/MagicSmtpCooldown.php';
 
 class DeliveryServerMagicSmtpWebApi extends DeliveryServer
 {
+    /** API bounces and complaints arrive through the registered DSWH webhook. */
+    public function getBounceServerNotSupported(): bool
+    {
+        return true;
+    }
+
     /**
      * @var string egress pool override
      */

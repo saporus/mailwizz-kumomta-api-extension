@@ -1,0 +1,15 @@
+--- apps/console/commands/SendCampaignsCommand.php
++++ apps/console/commands/SendCampaignsCommand.php
+@@ -2125,6 +2125,12 @@
+                         $sent     = $server->send($emailParams);
+                         $response = $server->getMailer()->getLog();
+                     } catch (Exception $e) {
++                        // Preserve Magic SMTP's temporary-failure signal so
++                        // the outer campaign loop retries instead of writing
++                        // a terminal giveup for this recipient.
++                        if ((int)$e->getCode() === 99) {
++                            throw $e;
++                        }
+                         $sent     = false;
+                         $response = $e->getMessage();
+                     }

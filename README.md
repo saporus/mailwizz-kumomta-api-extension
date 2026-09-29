@@ -34,7 +34,17 @@ This extension does not guarantee inbox placement or eliminate SMTP from final d
 
 Other MailWizz or PHP combinations have not yet been included in the verified compatibility matrix.
 
+Additional installation verification (2026-09-29): MailWizz 2.8.1 with PHP 8.3 passed all synthetic extension regression suites, real-application class/type registration, runtime permissions, enabled-extension UI, and API configuration-form checks. This is no-send compatibility verification, not end-to-end delivery validation. Use the matching 2.8.1 retry bridge below.
+
 ## Installation
+
+### Source update 1.1.6: customer form validation
+
+Version 1.1.6 declares that the Web API connector receives bounce events through its DSWH webhook, so customer accounts requiring mailbox bounce servers can save it without an invisible `bounce_server_id` error. Both custom forms now render an error summary. SMTP transport requirements and customer group policies are unchanged. Deploy the complete `magicsmtp` folder from this source revision and update the extension through MailWizz; older 1.1.5 release archives do not contain this fix.
+
+Customer create submission and subsequent saved update-form rendering were verified on MailWizz 2.8.1 / PHP 8.3, in addition to synthetic regression tests and real-model validation without sending email. Saving a delivery server is not a delivery or webhook test.
+
+No SaaS demo resources, credentials, migration, or production-execution permissions are changed. Synthetic tests do not use real API keys or send email. Existing and new tenant demo workspace integration was not rerun for this standalone MailWizz-only correction; those platform boundaries remain unchanged.
 
 1. Back up your MailWizz files and database.
 2. Download `magicsmtp-1.1.5.zip` from the [latest GitHub release](https://github.com/saporus/mailwizz-kumomta-api-extension/releases/latest).
@@ -47,6 +57,9 @@ Other MailWizz or PHP combinations have not yet been included in the verified co
 Version 1.1.4 introduced, and 1.1.5 retains, handling that propagates temporary transport failures and HTTP 408/425/429/5xx responses with MailWizz's existing safe-retry exception code. MailWizz 2.7.3 catches delivery-server exceptions inside `SendCampaignsCommand`, so the small reviewed bridge in [`patches/mailwizz-2.7.3-transient-retry.patch`](patches/mailwizz-2.7.3-transient-retry.patch) is also required for temporary API failures to stop the current batch instead of becoming terminal giveups.
 
 Apply the patch only to a matching MailWizz 2.7.3 installation after taking a backup, run PHP lint on the result, and keep the backup for rollback. Recheck this integration after every MailWizz upgrade. Permanent non-retryable rejections continue through MailWizz's normal failure path.
+
+MailWizz 2.8.1 retains the same inner exception catch and also requires this bridge. Use [`patches/mailwizz-2.8.1-transient-retry.patch`](patches/mailwizz-2.8.1-transient-retry.patch) only for the matching official 2.8.1 source. Verify with `patch --dry-run --fuzz=0 -p0`, apply it from the MailWizz root, and run PHP lint. Keep the unpatched file and full pre-upgrade file/database backups. The bridge does not change campaign states, quotas, tenant API credentials, or demo execution permissions. No proprietary MailWizz application files are included in this repository.
+
 6. Enter the Enterprise API endpoint and tenant API key supplied by Omni Knoweth.
 7. Keep SSL verification enabled in production.
 8. Configure the displayed MailWizz webhook URL in the Enterprise KumoMTA UI.
@@ -96,6 +109,7 @@ php tests/send_runtime_test.php
 php tests/delivery_report_clarity_test.php
 php tests/cooldown_runtime_test.php
 php tests/transient_send_runtime_test.php
+php tests/customer_form_test.php
 ```
 
 The checks confirm that the supported DSWH hook and JSON renderer are used, that callback dispatch preserves the delivery-server ID, that campaign sends receive stable opaque idempotency keys, and that no MailWizz core controller is bundled or modified.

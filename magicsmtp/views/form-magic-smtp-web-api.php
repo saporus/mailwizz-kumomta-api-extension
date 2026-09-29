@@ -50,6 +50,7 @@ if ($viewCollection->itemAt('renderContent')) {
                 <div class="clearfix"><!-- --></div>
             </div>
             <div class="box-body">
+                <?php echo $form->errorSummary($server); ?>
                 <?php
                 hooks()->doAction('before_active_form_fields', new CAttributeCollection([
                     'controller'    => $controller,
