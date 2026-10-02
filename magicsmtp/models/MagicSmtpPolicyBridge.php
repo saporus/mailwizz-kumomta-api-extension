@@ -15,13 +15,16 @@ final class MagicSmtpPolicyBridge
     {
         $this->store=$store; $this->bindings=$bindings; $this->correlate=$correlate;
         $this->schedulerReady=$schedulerReady; $this->clock=$clock??static function(){return (int)floor(microtime(true)*1000);};
-        $seen=[];
+        $seenTenants=[]; $seenCustomers=[]; $seenBridges=[];
         foreach ($bindings as $b) {
             if (empty($b['bridge_id']) || empty($b['tenant_id']) || empty($b['customer_id']) || empty($b['server_ids']) || strlen((string)($b['secret']??''))<32
                 || !is_int($b['customer_id']) || $b['customer_id']<1 || !is_array($b['server_ids'])) throw new InvalidArgumentException('Invalid policy bridge binding');
+            if (isset($seenBridges[$b['bridge_id']])) throw new InvalidArgumentException('Policy bridge ID is reused');
+            $seenBridges[$b['bridge_id']]=true;
             foreach ($b['server_ids'] as $id) {
-                if (!is_int($id) || $id<1 || isset($seen[$id])) throw new InvalidArgumentException('Delivery server has an ambiguous policy bridge binding');
-                $seen[$id]=true;
+                $tenantKey=$b['tenant_id']."\0".$id;$customerKey=$b['customer_id']."\0".$id;
+                if (!is_int($id) || $id<1 || isset($seenTenants[$tenantKey]) || isset($seenCustomers[$customerKey])) throw new InvalidArgumentException('Delivery server has an ambiguous tenant or customer policy bridge binding');
+                $seenTenants[$tenantKey]=true;$seenCustomers[$customerKey]=true;
             }
         }
     }
@@ -30,10 +33,20 @@ final class MagicSmtpPolicyBridge
     public function store(): MagicSmtpPolicyStore { return $this->store; }
     public function bindings(): array { return $this->bindings; }
     public function now(): int { return ($this->clock)(); }
-    public function bindingForServer(int $id): ?array
+    public function hasBindingForServer(int $id): bool
     {
-        foreach ($this->bindings as $b) if (in_array($id,$b['server_ids'],true)) return $b;
-        return null;
+        foreach ($this->bindings as $b) if (in_array($id,$b['server_ids'],true)) return true;
+        return false;
+    }
+    public function bindingForServer(int $id, ?string $tenantId=null, ?int $customerId=null): ?array
+    {
+        $matches=[];
+        foreach ($this->bindings as $b) {
+            if (in_array($id,$b['server_ids'],true) && ($tenantId===null || (string)$b['tenant_id']===$tenantId)
+                && ($customerId===null || $b['customer_id']===$customerId)) $matches[]=$b;
+        }
+        if(count($matches)>1)throw new RuntimeException('Shared delivery server requires an explicit tenant or customer');
+        return $matches[0]??null;
     }
     private function stringField(array $source,string $name,int $limit=128): string
     {
@@ -43,12 +56,16 @@ final class MagicSmtpPolicyBridge
     }
     public function receive(int $serverId, string $rawBody, string $signature): array
     {
-        $binding=$this->bindingForServer($serverId);
-        if (!$binding || empty($binding['enabled'])) throw new RuntimeException('Policy bridge is not enabled',403);
-        if (strlen($rawBody)>2097152 || !preg_match('/^[a-fA-F0-9]{64}$/D',$signature)
-            || !hash_equals(hash_hmac('sha256',$rawBody,$binding['secret']),strtolower($signature))) throw new RuntimeException('Invalid policy signature',401);
+        // The bounded, untrusted tenant field selects a configured key only.
+        // It confers no authority: verify the complete raw body before any DB call.
+        if(strlen($rawBody)>2097152)throw new InvalidArgumentException('Policy payload is too large');
         $event=json_decode($rawBody,true,32,JSON_THROW_ON_ERROR);
         if (!is_array($event)) throw new InvalidArgumentException('Invalid policy payload');
+        $tenantId=$this->stringField($event,'tenant');
+        $binding=$this->bindingForServer($serverId,$tenantId);
+        if (!$binding || empty($binding['enabled'])) throw new RuntimeException('Policy bridge is not enabled',403);
+        if (!preg_match('/^[a-fA-F0-9]{64}$/D',$signature)
+            || !hash_equals(hash_hmac('sha256',$rawBody,$binding['secret']),strtolower($signature))) throw new RuntimeException('Invalid policy signature',401);
         $type=$this->stringField($event,'event_type');
         if (!in_array($type,['recipient.policy_suppressed','recipient.policy_released','recipient.policy_probe'],true)) throw new InvalidArgumentException('Unsupported policy event');
         if ($this->stringField($event,'tenant')!==(string)$binding['tenant_id']) throw new RuntimeException('Policy tenant does not match bridge',403);
@@ -93,7 +110,9 @@ final class MagicSmtpPolicyBridge
     }
     public function recordDispatch(int $serverId,int $customerId,string $recipient,string $messageId,string $campaignUid,string $subscriberUid): void
     {
-        $binding=$this->bindingForServer($serverId);
+        // customerId comes from the trusted MailWizz campaign model, never
+        // from callback data. Other customers sharing this server stay inert.
+        $binding=$this->bindingForServer($serverId,null,$customerId);
         if (!$binding || empty($binding['enabled'])) return;
         if ($customerId!==$binding['customer_id'] || !($this->schedulerReady)($binding)) throw new RuntimeException('Policy dispatch binding is not ready');
         if (!$campaignUid || !$subscriberUid) throw new RuntimeException('Policy dispatch requires campaign and subscriber correlation');

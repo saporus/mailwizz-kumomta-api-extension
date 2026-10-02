@@ -57,7 +57,7 @@ final class MagicSmtpPolicyRuntime
     public static function recordDispatch($server,array $params,string $recipient,string $messageId): void
     {
         $bridge=self::bridge();
-        if (!$bridge || !$bridge->bindingForServer((int)$server->server_id)) return;
+        if (!$bridge || !$bridge->hasBindingForServer((int)$server->server_id)) return;
         $campaign=$params['campaign']??null;
         if (!$campaign && !empty($params['campaignUid'])) $campaign=Campaign::model()->findByAttributes(['campaign_uid'=>$params['campaignUid']]);
         if (!$campaign) throw new RuntimeException('Policy dispatch requires a campaign');

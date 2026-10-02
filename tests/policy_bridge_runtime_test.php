@@ -60,4 +60,35 @@ check((int)$db->query("SELECT COUNT(*) FROM magic_smtp_policy_receipt WHERE even
 $db->exec("DELETE FROM magic_smtp_policy_effect WHERE effect_id='effect-a'");
 rejects(static function()use($send,$event){$send($event);},'orphan receipt cannot acknowledge an uncommitted or missing effect');
 $ambiguous=$binding;$ambiguous['bridge_id']='ambiguous';rejects(static function()use($store,$binding,$ambiguous){new MagicSmtpPolicyBridge($store,[$binding,$ambiguous],static function(){return false;},static function(){return true;});},'ambiguous server binding rejected');
+// Shared delivery servers require independently scoped keys and dispatch proof.
+$sharedDb=new PDO('sqlite::memory:');$sharedStore=new MagicSmtpPolicyStore($sharedDb);$sharedStore->install();
+$bindingB=$binding;$bindingB['bridge_id']='bridge-b';$bindingB['tenant_id']='tenant-b';$bindingB['customer_id']=11;$bindingB['server_ids']=[42];$bindingB['secret']=str_repeat('b',40);
+$sharedBindings=[$binding,$bindingB];
+$shared=new MagicSmtpPolicyBridge($sharedStore,$sharedBindings,static function(){return null;},static function(){return true;},static function()use(&$now){return $now;});
+check($shared->bindingForServer(42,'tenant-b')['customer_id']===11,'shared server selects callback tenant without broadening customer authority');
+rejects(static function()use($shared){$shared->bindingForServer(42);},'unscoped shared-server lookup is rejected instead of selecting first tenant');
+foreach(['tenant_id','customer_id'] as $field){$bad=$bindingB;$bad[$field]=$binding[$field];rejects(static function()use($sharedStore,$binding,$bad){new MagicSmtpPolicyBridge($sharedStore,[$binding,$bad],static function(){return null;},static function(){return true;});},'shared server rejects repeated '.$field.' binding');}
+require_once dirname(__DIR__).'/magicsmtp/MagicSmtpPolicyRuntime.php';
+function app_param($key,$default=null){return $key==='magicsmtp.policyBridges'?$GLOBALS['sharedBindings']:$default;}
+$property=new ReflectionProperty(MagicSmtpPolicyRuntime::class,'bridge');$property->setAccessible(true);$property->setValue(null,$shared);
+$server=(object)['server_id'=>42];
+foreach([10=>'a',11=>'b'] as $customer=>$suffix){
+ $campaign=(object)['customer_id'=>$customer,'campaign_uid'=>'campaign-'.$suffix];
+ MagicSmtpPolicyRuntime::recordDispatch($server,['campaign'=>$campaign,'subscriberUid'=>'subscriber-'.$suffix],'user@example.test','<shared@example.test>');
+}
+check((int)$sharedDb->query('SELECT COUNT(*) FROM magic_smtp_policy_dispatch')->fetchColumn()===2,'runtime records both customers on the shared server without early skip');
+MagicSmtpPolicyRuntime::recordDispatch($server,['campaign'=>(object)['customer_id'=>12,'campaign_uid'=>'unbound'],'subscriberUid'=>'unbound'],'user@example.test','shared@example.test');
+check((int)$sharedDb->query('SELECT COUNT(*) FROM magic_smtp_policy_dispatch')->fetchColumn()===2,'unbound customer sharing the server remains unaffected');
+$sharedEvent=$event;$sharedEvent['timestamp']=$now;$sharedEvent['event_id']=$sharedEvent['webhook_event_id']='same-event';$sharedEvent['data']['policy_effect_id']='same-effect';$sharedEvent['data']['message_id']='shared@example.test';
+$sharedSend=static function(array $e,array $b)use($shared){$raw=json_encode($e);return $shared->receive(42,$raw,hash_hmac('sha256',$raw,$b['secret']));};
+check($sharedSend($sharedEvent,$binding)['tenantId']==='tenant-a','first shared-server tenant applies its own dispatch');
+$eventB=$sharedEvent;$eventB['tenant']='tenant-b';$eventB['data']['bridge_id']='bridge-b';$eventB['data']['campaign_id']='campaign-b';$eventB['data']['subscriber_uid']='subscriber-b';
+check($sharedSend($eventB,$bindingB)['tenantId']==='tenant-b','second shared-server tenant uses independent receipt/effect scope');
+check((int)$sharedDb->query('SELECT COUNT(*) FROM magic_smtp_policy_effect')->fetchColumn()===2,'identical shared-server event and effect IDs cannot collide across bindings');
+try{$sharedSend($eventB,$binding);throw new RuntimeException('Wrong tenant key accepted');}catch(RuntimeException $e){check($e->getCode()===401,'foreign tenant secret cannot authenticate selected shared-server binding');}
+$foreign=$sharedEvent;$foreign['event_id']=$foreign['webhook_event_id']='foreign-campaign';$foreign['data']['campaign_id']='campaign-b';$foreign['data']['subscriber_uid']='subscriber-b';$foreign['data']['customer_id']=11;
+rejects(static function()use($sharedSend,$foreign,$binding){$sharedSend($foreign,$binding);},'signed customer payload cannot authorize foreign customer campaign on shared server');
+$emptyStore=new MagicSmtpPolicyStore(new PDO('sqlite::memory:'));
+$beforeDb=new MagicSmtpPolicyBridge($emptyStore,$sharedBindings,static function(){throw new RuntimeException('No correlation before authentication');},static function(){throw new RuntimeException('No scheduler check before authentication');});
+try{$beforeDb->receive(42,json_encode($eventB),str_repeat('0',64));throw new RuntimeException('Unsigned event accepted');}catch(RuntimeException $e){check($e->getCode()===401,'shared-server raw signature is verified before any database or readiness access');}
 echo "PASS policy bridge acceptance (synthetic only; no network, native blacklist or campaign writes)\n";
