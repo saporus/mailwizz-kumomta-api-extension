@@ -112,8 +112,7 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
     {
         $rawBody = $request->getRawBody();
         if (strlen($rawBody) > 2097152) {
-            http_response_code(413);
-            $this->outputWebhookResponse(false, 'Payload too large');
+            $this->outputWebhookResponse(false, 'Payload too large', 413);
             return;
         }
         if (empty($rawBody)) {
@@ -137,9 +136,8 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
                 controller()->renderJson($result);
             } catch (Throwable $e) {
                 $code = in_array((int)$e->getCode(), [401,403,409], true) ? (int)$e->getCode() : 422;
-                http_response_code($code);
                 // Do not expose raw request bodies, signatures, SQL or credentials.
-                $this->outputWebhookResponse(false, $code === 401 ? 'Invalid policy signature' : ($code === 403 ? 'Policy bridge binding rejected' : ($code === 409 ? 'Policy bridge is not ready or dispatch is unmatched' : 'Policy event could not be processed')));
+                $this->outputWebhookResponse(false, $code === 401 ? 'Invalid policy signature' : ($code === 403 ? 'Policy bridge binding rejected' : ($code === 409 ? 'Policy bridge is not ready or dispatch is unmatched' : 'Policy event could not be processed')), $code);
             }
             return;
         }
@@ -326,14 +324,15 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
      *
      * @param bool   $ok
      * @param string $message
+     * @param int    $statusCode
      */
-    protected function outputWebhookResponse($ok, $message)
+    protected function outputWebhookResponse($ok, $message, $statusCode = 200)
     {
         controller()->renderJson(array(
             'ok'      => (bool)$ok,
             'message' => (string)$message,
             'server'  => isset($this->server_id) ? $this->server_id : 0,
             'type'    => $this->getType(),
-        ));
+        ), $statusCode);
     }
 }
