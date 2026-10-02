@@ -38,6 +38,10 @@ Additional installation verification (2026-09-29): MailWizz 2.8.1 with PHP 8.3 p
 
 ## Installation
 
+### Source update 1.2.0: signed recipient policy synchronization
+
+Customer delivery-error rules can now synchronize permanent suppression or temporary holds independently of MailWizz's bounce label. This requires an explicitly bound and signed policy webhook plus the verified MailWizz 2.7.3 scheduler bridge. A readiness probe blocks activation until compatibility is proven. Policy release preserves native blacklists and paused campaigns. See [installation, callback contract, acceptance and rollback](docs/recipient-policy-bridge-1.2.0.md) before enabling this feature. The earlier transport compatibility matrix does not extend this new scheduler feature to other MailWizz versions.
+
 ### Source update 1.1.6: customer form validation
 
 Version 1.1.6 declares that the Web API connector receives bounce events through its DSWH webhook, so customer accounts requiring mailbox bounce servers can save it without an invisible `bounce_server_id` error. Both custom forms now render an error summary. SMTP transport requirements and customer group policies are unchanged. Deploy the complete `magicsmtp` folder from this source revision and update the extension through MailWizz; older 1.1.5 release archives do not contain this fix.

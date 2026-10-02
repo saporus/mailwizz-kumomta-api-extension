@@ -110,20 +110,39 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
      */
     public function handleCallback(CHttpRequest $request)
     {
-        $rawBody = file_get_contents('php://input');
+        $rawBody = $request->getRawBody();
+        if (strlen($rawBody) > 2097152) {
+            http_response_code(413);
+            $this->outputWebhookResponse(false, 'Payload too large');
+            return;
+        }
         if (empty($rawBody)) {
             $this->outputWebhookResponse(false, 'Empty payload');
             return;
         }
 
         $payload = json_decode($rawBody, true);
-        if (!is_array($payload) || !isset($payload['event_type'])) {
+        if (!is_array($payload) || !isset($payload['event_type']) || !is_string($payload['event_type'])) {
             $this->outputWebhookResponse(false, 'Invalid payload format');
             return;
         }
 
         $eventType = strtolower(trim($payload['event_type']));
         $eventData = isset($payload['data']) && is_array($payload['data']) ? $payload['data'] : array();
+
+        if (strpos($eventType, 'recipient.policy_') === 0) {
+            require_once dirname(__DIR__) . '/MagicSmtpPolicyRuntime.php';
+            try {
+                $result = MagicSmtpPolicyRuntime::callback((int)$this->server_id, $rawBody, (string)$request->getHeader('X-Webhook-Signature', ''));
+                controller()->renderJson($result);
+            } catch (Throwable $e) {
+                $code = in_array((int)$e->getCode(), [401,403,409], true) ? (int)$e->getCode() : 422;
+                http_response_code($code);
+                // Do not expose raw request bodies, signatures, SQL or credentials.
+                $this->outputWebhookResponse(false, $code === 401 ? 'Invalid policy signature' : ($code === 403 ? 'Policy bridge binding rejected' : ($code === 409 ? 'Policy bridge is not ready or dispatch is unmatched' : 'Policy event could not be processed')));
+            }
+            return;
+        }
 
         if (empty($eventData['recipient'])) {
             $this->outputWebhookResponse(false, 'Missing recipient email address');
@@ -138,15 +157,15 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         $responseText = isset($eventData['response_text']) ? $eventData['response_text'] : 'Magic SMTP Webhook Callback';
 
         if ($eventType === 'bounce') {
-            $bounceType = isset($eventData['bounce_type']) ? strtolower($eventData['bounce_type']) : 'hard';
-            $code = isset($eventData['response_code']) ? (int)$eventData['response_code'] : 550;
+            $bounceType = isset($eventData['bounce_type']) ? strtolower($eventData['bounce_type']) : 'soft';
+            $code = isset($eventData['response_code']) ? (int)$eventData['response_code'] : 0;
 
             $this->processBounce(array(
                 'email'       => $recipient,
                 'message_id'  => $messageId,
-                'bounce_type' => ($bounceType === 'soft')
-                    ? CampaignBounceLog::BOUNCE_SOFT
-                    : CampaignBounceLog::BOUNCE_HARD,
+                'bounce_type' => ($bounceType === 'hard')
+                    ? CampaignBounceLog::BOUNCE_HARD
+                    : CampaignBounceLog::BOUNCE_SOFT,
                 'bounce_code' => $code,
                 'bounce_raw'  => $responseText,
             ));
@@ -208,6 +227,8 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
             'email_message_id_bracket'  => '<' . (string)$messageId . '>',
             'status'                    => CampaignDeliveryLog::STATUS_SUCCESS,
         ];
+        $criteria->addCondition('server_id = :magic_server_id');
+        $criteria->params[':magic_server_id'] = (int)$this->server_id;
 
         $deliveryLog = CampaignDeliveryLogHelper::findByCriteria($criteria);
         if (empty($deliveryLog)) {
@@ -227,6 +248,7 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         if (empty($subscriber)) {
             return false;
         }
+        if (strcasecmp(trim((string)$subscriber->email), trim((string)$params['email'])) !== 0) return false;
 
         $count = CampaignBounceLog::model()->countByAttributes([
             'campaign_id'   => (int)$campaign->campaign_id,
@@ -240,7 +262,7 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         $bounceLog->campaign_id     = (int)$campaign->campaign_id;
         $bounceLog->subscriber_id   = (int)$subscriber->subscriber_id;
         $bounceLog->message         = !empty($params['bounce_raw']) ? $params['bounce_raw'] : 'Magic SMTP Bounce';
-        $bounceLog->bounce_type     = ($params['bounce_type'] === CampaignBounceLog::BOUNCE_SOFT) ? CampaignBounceLog::BOUNCE_SOFT : CampaignBounceLog::BOUNCE_HARD;
+        $bounceLog->bounce_type     = ($params['bounce_type'] === CampaignBounceLog::BOUNCE_HARD) ? CampaignBounceLog::BOUNCE_HARD : CampaignBounceLog::BOUNCE_SOFT;
         $bounceLog->save();
 
         if ($bounceLog->bounce_type == CampaignBounceLog::BOUNCE_HARD) {
@@ -269,6 +291,8 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
             'email_message_id_bracket'  => '<' . (string)$messageId . '>',
             'status'                    => CampaignDeliveryLog::STATUS_SUCCESS,
         ];
+        $criteria->addCondition('server_id = :magic_server_id');
+        $criteria->params[':magic_server_id'] = (int)$this->server_id;
 
         $deliveryLog = CampaignDeliveryLogHelper::findByCriteria($criteria);
         if (empty($deliveryLog)) {
@@ -288,6 +312,7 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         if (empty($subscriber)) {
             return false;
         }
+        if (strcasecmp(trim((string)$subscriber->email), trim((string)$params['email'])) !== 0) return false;
 
         /** @var OptionCronProcessFeedbackLoopServers $fbl */
         $fbl = container()->get(OptionCronProcessFeedbackLoopServers::class);

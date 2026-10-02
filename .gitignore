@@ -5,3 +5,4 @@ SHA256SUMS.txt
 .vscode/
 .DS_Store
 Thumbs.db
+.qa/

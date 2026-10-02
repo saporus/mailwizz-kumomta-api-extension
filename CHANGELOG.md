@@ -47,3 +47,10 @@
 - Add tenant API-key authentication.
 - Add optional egress-pool metadata.
 - Add KumoMTA webhook processing for bounce and complaint events.
+# 1.2.0 — Recipient policy bridge (source candidate)
+
+- Add signed, tenant/customer/server-bound policy suppression/release/probe callbacks and durable dispatch correlation, event deduplication and extension-owned effects.
+- Preserve native blacklist/subscriber state, retain temporary queue work and deadlines, and display accurate policy status on the normal delivery report.
+- Add hash-guarded candidate preparation, compatibility acceptance, installation/reversal tools for the verified MailWizz 2.7.3 scheduler; unknown versions and selector overrides remain gated.
+- Treat missing/unknown legacy bounce classification as soft and require recipient/server match.
+- Add isolated callback/store and real-candidate scheduler fixtures. No production installation or sending is performed by these checks.

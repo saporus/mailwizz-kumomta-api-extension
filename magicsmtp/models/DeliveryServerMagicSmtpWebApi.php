@@ -12,6 +12,7 @@ if (!defined('MW_PATH')) {
  * Installation: Place in apps/common/models/ and register in DeliveryServer::getTypesMapping().
  */
 require_once __DIR__ . '/MagicSmtpCooldown.php';
+require_once dirname(__DIR__) . '/MagicSmtpPolicyRuntime.php';
 
 class DeliveryServerMagicSmtpWebApi extends DeliveryServer
 {
@@ -394,6 +395,14 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
             // no Kumo SMTP/Basic credentials needed -- the key identifies the tenant.
             if (!empty($this->password)) {
                 $options['headers']['x-tenant-api-key'] = (string)$this->password;
+            }
+
+            // Durable, scoped proof precedes submission, including ambiguous HTTP outcomes.
+            // Storage failure retains the campaign recipient through the retry bridge.
+            try {
+                MagicSmtpPolicyRuntime::recordDispatch($this, $params, $toEmail, $messageId);
+            } catch (Throwable $policyFailure) {
+                return $this->temporaryAdmissionFailure('Temporary sending delay: recipient policy dispatch coordination is unavailable.');
             }
 
             // Make HTTP POST call to KumoMTA endpoint

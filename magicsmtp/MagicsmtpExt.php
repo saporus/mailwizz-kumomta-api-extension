@@ -16,7 +16,7 @@ class MagicsmtpExt extends ExtensionInit
     public $description = 'Connects MailWizz to the Omni Knoweth Enterprise KumoMTA API, including webhook processing.';
 
     // Extension version
-    public $version = '1.1.6';
+    public $version = '1.2.0';
 
     // Minimum MailWizz version required
     public $minAppVersion = '2.7.3';
@@ -32,6 +32,27 @@ class MagicsmtpExt extends ExtensionInit
 
     // Applications where this extension is allowed to run
     public $allowedApps = array('*');
+
+    /** Additive schema installation uses the normal administrator enable/update workflow. */
+    public function beforeEnable()
+    {
+        $this->installPolicySchema();
+        return true;
+    }
+
+    public function update()
+    {
+        $this->installPolicySchema();
+        return true;
+    }
+
+    private function installPolicySchema()
+    {
+        require_once dirname(__FILE__) . '/models/MagicSmtpPolicyStore.php';
+        $db = Yii::app()->db;
+        $db->setActive(true);
+        (new MagicSmtpPolicyStore($db->getPdoInstance(), (string)$db->tablePrefix))->install();
+    }
 
     /**
      * Bootstrap the extension
@@ -56,6 +77,8 @@ class MagicsmtpExt extends ExtensionInit
         // Explain MTA acceptance in delivery reports without changing send outcomes.
         require_once dirname(__FILE__) . '/MagicSmtpDeliveryReportClarity.php';
         Yii::app()->hooks->addFilter('grid_view_properties', array('MagicSmtpDeliveryReportClarity', 'gridProperties'));
+        require_once dirname(__FILE__) . '/MagicSmtpPolicyRuntime.php';
+        Yii::app()->hooks->addFilter('grid_view_properties', array('MagicSmtpPolicyRuntime', 'gridProperties'));
 
         // Register webhook processing through MailWizz's supported DSWH hook.
         Yii::app()->hooks->addFilter('dswh_process_map', array($this, '_registerDswhProcessor'));
