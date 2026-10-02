@@ -132,7 +132,11 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         if (strpos($eventType, 'recipient.policy_') === 0) {
             require_once dirname(__DIR__) . '/MagicSmtpPolicyRuntime.php';
             try {
-                $result = MagicSmtpPolicyRuntime::callback((int)$this->server_id, $rawBody, (string)$request->getHeader('X-Webhook-Signature', ''));
+                // Yii 1 CHttpRequest has no getHeader(). FPM exposes this header
+                // through SERVER; leave the raw body unchanged for HMAC checks.
+                $signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
+                if (!is_string($signature)) $signature = '';
+                $result = MagicSmtpPolicyRuntime::callback((int)$this->server_id, $rawBody, $signature);
                 controller()->renderJson($result);
             } catch (Throwable $e) {
                 $code = in_array((int)$e->getCode(), [401,403,409], true) ? (int)$e->getCode() : 422;

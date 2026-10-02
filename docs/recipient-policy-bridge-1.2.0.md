@@ -143,3 +143,10 @@ php patches/apply-policy-scheduler.php rollback /path/to/mailwizz /private/new-p
 Restore the complete previous extension only after the affected sending paths remain safely quiesced or another verified suppression mechanism is in place. Never delete policy receipts/effects as part of routine rollback, clear a native blacklist, reset subscriber statuses, or auto-resume campaigns. Re-run compatibility testing and nonce probes after any MailWizz upgrade or scheduler customization.
 
 Full licensed source copies, generated candidate files, test databases and local receipts remain in ignored/private `.qa/` or private operational output directories. Commit only this extension, our tools/tests/documentation, and narrowly scoped patches; do not publish proprietary MailWizz core source.
+# Deployed-framework callback compatibility follow-up
+
+The normal extension lifecycle must be updated alongside source installation: MailWizz skips an enabled extension whose stored version is older than its source version. The October 2 release verification now checks actual frontend FPM and console registration without importing extension classes manually.
+
+An actual signed no-binding probe exposed a second compatibility gap: the installed Yii 1 `CHttpRequest` has no `getHeader()` method. The handler now reads the FPM `HTTP_X_WEBHOOK_SIGNATURE` string and verifies it against the unchanged raw request bytes. Non-string or absent headers become an empty signature and are rejected. Callback fixtures deliberately omit the nonexistent method and cover real callback authentication, raw-body tampering, missing/malformed headers, and correct HTTP error status through MailWizz's JSON renderer.
+
+Source tests are distinct from live activation evidence. The no-binding endpoint must return structured HTTP 403 before configuration, and a configured signed nonce probe must succeed before any rule activation. No recipient policy is created by these probes.
