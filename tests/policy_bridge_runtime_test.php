@@ -71,6 +71,7 @@ foreach(['tenant_id','customer_id'] as $field){$bad=$bindingB;$bad[$field]=$bind
 require_once dirname(__DIR__).'/magicsmtp/MagicSmtpPolicyRuntime.php';
 function app_param($key,$default=null){return $key==='magicsmtp.policyBridges'?$GLOBALS['sharedBindings']:$default;}
 $property=new ReflectionProperty(MagicSmtpPolicyRuntime::class,'bridge');$property->setAccessible(true);$property->setValue(null,$shared);
+$fingerprint=new ReflectionProperty(MagicSmtpPolicyRuntime::class,'bindingFingerprint');$fingerprint->setAccessible(true);$fingerprint->setValue(null,hash('sha256',json_encode($sharedBindings,JSON_THROW_ON_ERROR)));
 $server=(object)['server_id'=>42];
 foreach([10=>'a',11=>'b'] as $customer=>$suffix){
  $campaign=(object)['customer_id'=>$customer,'campaign_uid'=>'campaign-'.$suffix];

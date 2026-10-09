@@ -16,7 +16,7 @@ class MagicsmtpExt extends ExtensionInit
     public $description = 'Connects MailWizz to the Omni Knoweth Enterprise KumoMTA API, including webhook processing.';
 
     // Extension version
-    public $version = '1.2.0';
+    public $version = '1.3.0';
 
     // Minimum MailWizz version required
     public $minAppVersion = '2.7.3';
@@ -52,6 +52,8 @@ class MagicsmtpExt extends ExtensionInit
         $db = Yii::app()->db;
         $db->setActive(true);
         (new MagicSmtpPolicyStore($db->getPdoInstance(), (string)$db->tablePrefix))->install();
+        require_once dirname(__FILE__) . '/models/MagicSmtpConnectStore.php';
+        (new MagicSmtpConnectStore($db->getPdoInstance(), (string)$db->tablePrefix))->install();
     }
 
     /**
@@ -82,6 +84,22 @@ class MagicsmtpExt extends ExtensionInit
 
         // Register webhook processing through MailWizz's supported DSWH hook.
         Yii::app()->hooks->addFilter('dswh_process_map', array($this, '_registerDswhProcessor'));
+
+        if ($this->isAppName('customer') || $this->isAppName('backend')) {
+            require_once dirname(__FILE__) . '/MagicSmtpConnectRuntime.php';
+            Yii::app()->controllerMap['magic_smtp_connect'] = array('class' => 'ext-magicsmtp.controllers.Magic_smtp_connectController');
+            hooks()->addFilter($this->isAppName('backend') ? 'backend_left_navigation_menu_items' : 'customer_left_navigation_menu_items', array($this, '_connectMenu'));
+        }
+    }
+
+    public function _connectMenu(array $items): array
+    {
+        try {
+            if ($this->isAppName('backend')) MagicSmtpConnectRuntime::administrator();
+            else MagicSmtpConnectRuntime::customerIdentity();
+        } catch (Throwable $failure) { return $items; }
+        $items['magic-smtp-connect'] = array('name' => 'Connect MailWizz', 'icon' => 'glyphicon-link', 'active' => 'magic_smtp_connect', 'route' => array('magic_smtp_connect/index'));
+        return $items;
     }
 
     /**

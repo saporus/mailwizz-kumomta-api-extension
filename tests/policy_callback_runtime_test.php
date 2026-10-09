@@ -28,6 +28,7 @@ $binding=['bridge_id'=>'bridge','tenant_id'=>'tenant','customer_id'=>1,'server_i
 $policyBindings=[$binding];
 $bridge=new MagicSmtpPolicyBridge($store,$policyBindings,static function(){return null;},static function(){return true;});
 $property=new ReflectionProperty(MagicSmtpPolicyRuntime::class,'bridge');$property->setAccessible(true);$property->setValue(null,$bridge);
+$fingerprint=new ReflectionProperty(MagicSmtpPolicyRuntime::class,'bindingFingerprint');$fingerprint->setAccessible(true);$fingerprint->setValue(null,hash('sha256',json_encode($policyBindings,JSON_THROW_ON_ERROR)));
 $request=new CHttpRequest(['event_id'=>'probe','event_type'=>'recipient.policy_probe','tenant'=>'tenant','timestamp'=>(int)(microtime(true)*1000),'data'=>['bridge_id'=>'bridge','nonce'=>'signed-nonce']]);
 $request->raw.="\n";
 $_SERVER['HTTP_X_WEBHOOK_SIGNATURE']=hash_hmac('sha256',$request->raw,$binding['secret']);

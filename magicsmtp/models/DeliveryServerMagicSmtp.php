@@ -134,6 +134,24 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         $eventType = strtolower(trim($payload['event_type']));
         $eventData = isset($payload['data']) && is_array($payload['data']) ? $payload['data'] : array();
 
+        if ($eventType === 'integration.mailwizz') {
+            require_once dirname(__DIR__) . '/MagicSmtpConnectRuntime.php';
+            try {
+                $signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
+                $result = MagicSmtpConnectRuntime::management((int)$this->server_id, $rawBody, is_string($signature) ? $signature : '');
+                http_response_code($result['status']);
+                header('Content-Type: application/json; charset=UTF-8');
+                header('Cache-Control: no-store');
+                header('X-Magic-Integration-Signature: ' . $result['signature']);
+                echo $result['body'];
+                Yii::app()->end();
+            } catch (Throwable $failure) {
+                $status = in_array((int)$failure->getCode(), [401,403,409,413,422,429], true) ? (int)$failure->getCode() : 503;
+                $this->outputWebhookResponse(false, 'Connection request could not be processed', $status);
+            }
+            return;
+        }
+
         if (strpos($eventType, 'recipient.policy_') === 0) {
             require_once dirname(__DIR__) . '/MagicSmtpPolicyRuntime.php';
             try {
@@ -154,7 +172,8 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         if (in_array($eventType, ['bounce', 'complaint'], true)) {
             require_once __DIR__ . '/MagicSmtpBounceIngress.php';
             try {
-                $bindings = function_exists('app_param') ? app_param('magicsmtp.policyBridges', []) : [];
+                require_once dirname(__DIR__) . '/MagicSmtpConnectRuntime.php';
+                $bindings = MagicSmtpConnectRuntime::bindings();
                 if (!is_array($bindings)) throw new RuntimeException('Invalid feedback configuration', 403);
                 $signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
                 $this->feedbackBinding = MagicSmtpBounceIngress::authenticate((int)$this->server_id, $bindings, $payload, $rawBody, is_string($signature) ? $signature : '');

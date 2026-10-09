@@ -6,14 +6,19 @@ require_once __DIR__.'/models/MagicSmtpPolicyBridge.php';
 final class MagicSmtpPolicyRuntime
 {
     private static $bridge;
+    private static $bindingFingerprint;
     public static function bridge(): ?MagicSmtpPolicyBridge
     {
-        $bindings=function_exists('app_param')?app_param('magicsmtp.policyBridges',[]):[];
-        if (!$bindings) return null;
-        if (self::$bridge) return self::$bridge;
+        require_once __DIR__.'/MagicSmtpConnectRuntime.php';
+        $bindings=MagicSmtpConnectRuntime::bindings();
+        if (!$bindings) { self::$bridge=null;self::$bindingFingerprint=null;return null; }
+        $fingerprint=hash('sha256',json_encode($bindings,JSON_THROW_ON_ERROR));
+        if (self::$bridge && self::$bindingFingerprint===$fingerprint) return self::$bridge;
         $db=Yii::app()->db; $db->setActive(true);
         $store=new MagicSmtpPolicyStore($db->getPdoInstance(),(string)$db->tablePrefix);
-        return self::$bridge=new MagicSmtpPolicyBridge($store,$bindings,[self::class,'correlate'],[self::class,'schedulerVerified']);
+        $bridge=new MagicSmtpPolicyBridge($store,$bindings,[self::class,'correlate'],[self::class,'schedulerVerified']);
+        self::$bindingFingerprint=$fingerprint;
+        return self::$bridge=$bridge;
     }
     public static function schedulerVerified(array $binding): bool
     {
