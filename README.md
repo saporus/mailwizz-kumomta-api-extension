@@ -30,13 +30,19 @@ This extension does not guarantee inbox placement or eliminate SMTP from final d
 
 - MailWizz 2.7.3
 - PHP 8.1 for both PHP-FPM and CLI/cron processing
-- Extension version 1.1.5
+- Extension version 1.3.0 (MailWizz 2.7.3 / PHP 8.1, including self-service connection checks)
 
 Other MailWizz or PHP combinations have not yet been included in the verified compatibility matrix.
 
 Additional installation verification (2026-09-29): MailWizz 2.8.1 with PHP 8.3 passed all synthetic extension regression suites, real-application class/type registration, runtime permissions, enabled-extension UI, and API configuration-form checks. This is no-send compatibility verification, not end-to-end delivery validation. Use the matching 2.8.1 retry bridge below.
 
 ## Installation
+
+### Source update 1.3.0: Connect MailWizz
+
+Customers with native delivery-server management access can pair their account from the normal customer page, then discover and add eligible servers in the normal MagicSMTP tenant panel. An installation administrator enables the feature once with protected encryption settings and a verified scheduler profile. One shared callback serves the explicitly authorized servers; no separate tenant webhook is required for each server. Existing bindings and secrets are preserved. See the [setup, permissions, demo acceptance and recovery guide](docs/self-service-connect-mailwizz.md).
+
+Deploy the complete current source and run MailWizz's native extension **Update** action. The older 1.1.5 release archive linked below does not include this feature. Self-service policy pairing is verified on MailWizz 2.7.3 / PHP 8.1; the older transport-only 2.8.1 check does not extend to this feature.
 
 ### Source update 1.2.0: signed recipient policy synchronization
 

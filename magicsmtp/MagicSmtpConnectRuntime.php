@@ -74,7 +74,7 @@ final class MagicSmtpConnectRuntime
     public static function demoOperation(int $customer,int $actor,string $operation,array $input=[]):array
     {
         $demo=self::demo($customer);if(!$demo)throw new CHttpException(403,'Demonstration workspace is not registered.');$state=$demo['state'];
-        if($operation==='code'){$state['lastCodeAt']=time();$state['stage']='code_ready';}
+        if($operation==='code'){$state['lastCodeAt']=time();if(($state['stage']??'')!=='connected')$state['stage']='code_ready';}
         elseif($operation==='save'){$label=$input['label']??'';if(!is_string($label)||trim($label)===''||strlen($label)>100)throw new InvalidArgumentException('Enter a connection name of up to 100 characters.');$state['label']=trim($label);$state['stage']='connected';$state['revision']=(int)($state['revision']??0)+1;}
         else throw new InvalidArgumentException('Unknown demonstration action.');
         self::store()->atomic(static function()use($customer,$actor,$state):void{self::demo($customer);self::store()->query('UPDATE '.self::store()->table('demo').' SET state_json=?,updated_at=? WHERE customer_id=?',[json_encode($state,JSON_THROW_ON_ERROR),time(),$customer]);self::store()->audit($customer,$actor,'demo_save','',['stage'=>$state['stage']],time());});
