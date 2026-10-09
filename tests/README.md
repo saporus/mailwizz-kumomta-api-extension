@@ -12,7 +12,11 @@ php tests/send_runtime_test.php
 php tests/delivery_report_clarity_test.php
 php tests/cooldown_runtime_test.php
 php tests/transient_send_runtime_test.php
+php tests/short_retry_runtime_test.php
+php tests/short_retry_guard_runtime_test.php
 ```
+
+The short-retry fixtures cover a maximum of three extra attempts, exact MIME/key/recipient/endpoint reuse, a 12-second retry-start budget, shared cooldown provenance, changed pause/suppression/quota checks, and no inline replay after ambiguous HTTP outcomes. To check the real private MailWizz 2.7.3 catch blocks, prepare a candidate with `patches/prepare-short-retry.php` and run `php tests/short_retry_bridge_runtime_test.php PRIVATE_CANDIDATE_DIRECTORY`. Also rerun the policy scheduler fixture using the candidate's updated command hash and unchanged queue behavior. See [the scoped release record](../docs/2026-10-09-short-admission-retry.md).
 
 The delivery-report fixture verifies successful Magic SMTP tooltip rendering, preservation of failed and non-Magic server outcomes, keyboard accessibility attributes, escaping, route scope, and no row mutations. It does not send email or connect to a database.
 

@@ -12,10 +12,40 @@ if (!defined('MW_PATH')) {
  * Installation: Place in apps/common/models/ and register in DeliveryServer::getTypesMapping().
  */
 require_once __DIR__ . '/MagicSmtpCooldown.php';
+require_once __DIR__ . '/MagicSmtpShortRetry.php';
 require_once dirname(__DIR__) . '/MagicSmtpPolicyRuntime.php';
 
 class DeliveryServerMagicSmtpWebApi extends DeliveryServer
 {
+    private $shortRetryGuard;
+
+    // Only a patched normal campaign worker can opt in with native eligibility checks.
+    public function setShortRetryGuard(callable $guard): void { $this->shortRetryGuard = $guard; }
+
+    protected function createShortRetry(): MagicSmtpShortRetry { return new MagicSmtpShortRetry($this->shortRetryGuard); }
+
+    protected function createCooldown(): MagicSmtpCooldown
+    {
+        return new MagicSmtpCooldown(Yii::getPathOfAlias('common.runtime'), (string)$this->hostname, (string)$this->password);
+    }
+
+    private function postWithShortRetry(array $options, MagicSmtpCooldown $cooldown, ?MagicSmtpShortRetry $retry)
+    {
+        $endpoint = (string)$this->hostname;
+        for ($attempt = 0; ; $attempt++) {
+            try { return $this->getClient()->post($endpoint, $options); }
+            catch (GuzzleHttp\Exception\RequestException $e) {
+                $response = $e->getResponse();
+                $data = $response ? json_decode((string)$response->getBody(), true) : null;
+                if (!$retry || $attempt >= 3 || !MagicSmtpCooldown::isRecoveryRefusal(is_array($data) ? $data : null, $response ? (int)$response->getStatusCode() : 0)) throw $e;
+                try { $cooldown->defer($response->getHeaderLine('Retry-After'), $data['retryAfter'] ?? null, $data, (int)$response->getStatusCode()); }
+                catch (Throwable $storageFailure) { throw $e; }
+                if (!$retry->wait($cooldown)) throw $e;
+                // Reuse the exact options: MIME, recipient, credentials and key stay fixed.
+            }
+        }
+    }
+
     /** API bounces and complaints arrive through the registered DSWH webhook. */
     public function getBounceServerNotSupported(): bool
     {
@@ -316,11 +346,15 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
 
     public function send(array $params = []): array
     {
-        $cooldown = new MagicSmtpCooldown(Yii::getPathOfAlias('common.runtime'), (string)$this->hostname, (string)$this->password);
+        $cooldown = $this->createCooldown();
+        $retry = is_cli() && $this->shortRetryGuard && $this->buildIdempotencyKey($params) !== '' ? $this->createShortRetry() : null;
+        $this->shortRetryGuard = null;
         try { $wait = $cooldown->remaining(); }
         catch (Throwable $e) { return $this->temporaryAdmissionFailure('Temporary sending delay: retry coordination is unavailable. Please try again in one minute.'); }
         if ($wait > 0) {
-            return $this->temporaryAdmissionFailure(sprintf('Sending is temporarily delayed. Retry in %d seconds; campaign recipients remain queued.', $wait));
+            if (!$retry || !$retry->wait($cooldown)) {
+                return $this->temporaryAdmissionFailure(sprintf('Sending is temporarily delayed. Retry in %d seconds; campaign recipients remain queued.', $wait));
+            }
         }
 
         $params = (array)hooks()->applyFilters('delivery_server_before_send_email', $this->getParamsArray($params), $this);
@@ -384,6 +418,7 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
             ];
 
             $idempotencyKey = $this->buildIdempotencyKey($params);
+            if ($idempotencyKey === '') $retry = null;
             if ($idempotencyKey !== '') {
                 // Send both forms supported by the Enterprise API. The opaque
                 // hash avoids exposing MailWizz campaign/subscriber IDs.
@@ -406,7 +441,7 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
             }
 
             // Make HTTP POST call to KumoMTA endpoint
-            $response = $this->getClient()->post($this->hostname, $options);
+            $response = $this->postWithShortRetry($options, $cooldown, $retry);
 
             if ($response->getStatusCode() === 200) {
                 $this->getMailer()->addLog('OK');
@@ -432,11 +467,15 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
                 try {
                     $wait = $cooldown->defer($response ? $response->getHeaderLine('Retry-After') : '', is_array($responseData) ? ($responseData['retryAfter'] ?? null) : null, is_array($responseData) ? $responseData : null, $statusCode);
                 } catch (Throwable $failure) { $wait = 60; }
+                // A final HTTP failure may arrive after a pause during the request.
+                // Preserve native pause handling even when no further retry is allowed.
+                if ($retry) $retry->checkEligibility();
                 return $this->temporaryAdmissionFailure(sprintf('Sending is temporarily delayed (HTTP %d: %s). Retry in %d seconds; campaign recipients remain queued.', $statusCode, $detail, $wait));
             }
 
             $this->getMailer()->addLog($e->getMessage());
         } catch (Exception $e) {
+            if (in_array((int)$e->getCode(), [98, 99], true)) throw $e;
             $this->getMailer()->addLog($e->getMessage());
         }
 
