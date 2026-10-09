@@ -116,13 +116,13 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
             return;
         }
         if (empty($rawBody)) {
-            $this->outputWebhookResponse(false, 'Empty payload');
+            $this->outputWebhookResponse(false, 'Empty payload', 400);
             return;
         }
 
         $payload = json_decode($rawBody, true);
         if (!is_array($payload) || !isset($payload['event_type']) || !is_string($payload['event_type'])) {
-            $this->outputWebhookResponse(false, 'Invalid payload format');
+            $this->outputWebhookResponse(false, 'Invalid payload format', 400);
             return;
         }
 
@@ -146,8 +146,8 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
             return;
         }
 
-        if (empty($eventData['recipient'])) {
-            $this->outputWebhookResponse(false, 'Missing recipient email address');
+        if (empty($eventData['recipient']) || !is_string($eventData['recipient']) || strlen($eventData['recipient']) > 320) {
+            $this->outputWebhookResponse(false, 'Missing or invalid recipient email address', 422);
             return;
         }
 
@@ -159,18 +159,34 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         $responseText = isset($eventData['response_text']) ? $eventData['response_text'] : 'Magic SMTP Webhook Callback';
 
         if ($eventType === 'bounce') {
+            if (!is_string($messageId) || strlen($messageId) > 512 || !is_string($responseText)
+                || (isset($eventData['bounce_type']) && !is_string($eventData['bounce_type']))
+                || (isset($eventData['response_code']) && !is_int($eventData['response_code']) && !(is_string($eventData['response_code']) && preg_match('/^-?[0-9]{1,4}$/D', $eventData['response_code'])))) {
+                $this->outputWebhookResponse(false, 'Invalid bounce payload', 422);
+                return;
+            }
             $bounceType = isset($eventData['bounce_type']) ? strtolower($eventData['bounce_type']) : 'soft';
             $code = isset($eventData['response_code']) ? (int)$eventData['response_code'] : 0;
 
-            $this->processBounce(array(
-                'email'       => $recipient,
-                'message_id'  => $messageId,
-                'bounce_type' => ($bounceType === 'hard')
-                    ? CampaignBounceLog::BOUNCE_HARD
-                    : CampaignBounceLog::BOUNCE_SOFT,
-                'bounce_code' => $code,
-                'bounce_raw'  => $responseText,
-            ));
+            try {
+                $processed = $this->processBounce(array(
+                    'email'       => $recipient,
+                    'message_id'  => $messageId,
+                    'bounce_type' => ($bounceType === 'hard')
+                        ? CampaignBounceLog::BOUNCE_HARD
+                        : CampaignBounceLog::BOUNCE_SOFT,
+                    'bounce_code' => $code,
+                    'bounce_raw'  => $responseText,
+                ));
+            } catch (Throwable $failure) {
+                // No raw callback, database error, address or credential output.
+                $this->outputWebhookResponse(false, 'Bounce could not be recorded', 503);
+                return;
+            }
+            if ($processed !== true) {
+                $this->outputWebhookResponse(false, 'Bounce did not match an eligible delivery', 409);
+                return;
+            }
 
             $this->outputWebhookResponse(true, 'Bounce registered');
             return;
@@ -187,8 +203,8 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
             return;
         }
 
-        // Unrecognised event type — acknowledge but log
-        $this->outputWebhookResponse(false, 'Unsupported event type: ' . $eventType);
+        // Unsupported events must not be marked delivered by an HTTP-only sender.
+        $this->outputWebhookResponse(false, 'Unsupported event type', 422);
     }
 
     /**
@@ -245,33 +261,56 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         $subscriber = ListSubscriber::model()->findByAttributes([
             'list_id'       => $campaign->list_id,
             'subscriber_id' => $deliveryLog->subscriber_id,
-            'status'        => ListSubscriber::STATUS_CONFIRMED,
         ]);
         if (empty($subscriber)) {
             return false;
         }
         if (strcasecmp(trim((string)$subscriber->email), trim((string)$params['email'])) !== 0) return false;
 
-        $count = CampaignBounceLog::model()->countByAttributes([
+        $existing = CampaignBounceLog::model()->findByAttributes([
             'campaign_id'   => (int)$campaign->campaign_id,
             'subscriber_id' => (int)$subscriber->subscriber_id,
         ]);
-        if (!empty($count)) {
+        if ($existing) {
+            // A prior soft result is not proof that this hard event was applied.
+            if ($params['bounce_type'] === CampaignBounceLog::BOUNCE_HARD && $existing->bounce_type !== CampaignBounceLog::BOUNCE_HARD) return false;
+            if ($existing->bounce_type === CampaignBounceLog::BOUNCE_HARD) $this->ensureHardBounceProtection($subscriber, (string)$existing->message);
             return true;
         }
+        // A repeated hard bounce may already have blacklisted this subscriber.
+        // Only an existing exact correlated bounce can bypass current status.
+        if ($subscriber->status !== ListSubscriber::STATUS_CONFIRMED) return false;
 
         $bounceLog = new CampaignBounceLog();
         $bounceLog->campaign_id     = (int)$campaign->campaign_id;
         $bounceLog->subscriber_id   = (int)$subscriber->subscriber_id;
         $bounceLog->message         = !empty($params['bounce_raw']) ? $params['bounce_raw'] : 'Magic SMTP Bounce';
         $bounceLog->bounce_type     = ($params['bounce_type'] === CampaignBounceLog::BOUNCE_HARD) ? CampaignBounceLog::BOUNCE_HARD : CampaignBounceLog::BOUNCE_SOFT;
-        $bounceLog->save();
+        if (!$bounceLog->save()) throw new RuntimeException('Bounce log persistence failed');
 
         if ($bounceLog->bounce_type == CampaignBounceLog::BOUNCE_HARD) {
-            $subscriber->addToBlacklist($bounceLog->message);
+            $this->ensureHardBounceProtection($subscriber, (string)$bounceLog->message);
         }
 
         return true;
+    }
+
+    /** A persisted bounce can outlive a failed blacklist write; retry that step. */
+    protected function ensureHardBounceProtection($subscriber, string $reason): void
+    {
+        if ($subscriber->status === ListSubscriber::STATUS_BLACKLISTED) return;
+        if ($subscriber->status !== ListSubscriber::STATUS_CONFIRMED || !$subscriber->addToBlacklist($reason)) {
+            throw new RuntimeException('Hard bounce protection is incomplete');
+        }
+        // Native addToBlacklist can update only its in-memory model after a
+        // failed status write. A fresh durable read is required before ACK.
+        $stored = ListSubscriber::model()->findByAttributes([
+            'list_id' => (int)$subscriber->list_id,
+            'subscriber_id' => (int)$subscriber->subscriber_id,
+        ]);
+        if (!$stored || $stored->status !== ListSubscriber::STATUS_BLACKLISTED) {
+            throw new RuntimeException('Hard bounce protection is not persisted');
+        }
     }
 
     /**
