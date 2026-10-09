@@ -61,7 +61,8 @@ Release sequence:
 3. Create the exact operator-owned existing QA fixture through the reviewed CLI helper.
 4. `apply PIN`: CAS-publish six dependencies and three entrypoint/runtime files, with verified backups. It performs native application initialization plus an explicit installed-runtime binding check. No service restart is required.
 5. `activate PIN --settings-sha256 SHA`: verify all nine published hashes, exact private candidate hash, zero managed connections and no application-parameter override; exclusively publish settings outside the webroot. Enrollment remains disabled.
-6. Enable customer connections on the normal backend page, complete normal-page and demo acceptance, then pair/verify the intended tenant through its normal UI.
+6. Use the native backend extension **Update** action for `magicsmtp` (1.2.0 to 1.3.0). MailWizz keeps the new extension routes unavailable until its stored extension version is updated. The extension update performs only additive/idempotent policy and connection schema installation; it preserves existing rows and demo edits.
+7. Enable customer connections on the normal backend page, complete normal-page and demo acceptance, then pair/verify the intended tenant through its normal UI.
 
 The stage is `/var/tmp/magicsmtp-connect-20261009-v1`; app backups are `/root/magicsmtp-connect-backup-20261009-v1`. The original static binding file, shared secret, callback URL and scheduler files are guards, not publication targets. The app publication and settings activation share a nonblocking private release lock. Unknown or interrupted results require read-only reconciliation before another action.
 
