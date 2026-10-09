@@ -19,6 +19,9 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
     // Internal type identifier — matches the key in getTypesMapping()
     protected $_type = 'magic-smtp';
 
+    private $feedbackBinding;
+    private $feedbackData;
+
     /**
      * Returns the model static instance.
      * Required by Yii's ActiveRecord pattern for static method chaining.
@@ -110,6 +113,8 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
      */
     public function handleCallback(CHttpRequest $request)
     {
+        $this->feedbackBinding = null;
+        $this->feedbackData = null;
         $rawBody = $request->getRawBody();
         if (strlen($rawBody) > 2097152) {
             $this->outputWebhookResponse(false, 'Payload too large', 413);
@@ -144,6 +149,21 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
                 $this->outputWebhookResponse(false, $code === 401 ? 'Invalid policy signature' : ($code === 403 ? 'Policy bridge binding rejected' : ($code === 409 ? 'Policy bridge is not ready or dispatch is unmatched' : 'Policy event could not be processed')), $code);
             }
             return;
+        }
+
+        if (in_array($eventType, ['bounce', 'complaint'], true)) {
+            require_once __DIR__ . '/MagicSmtpBounceIngress.php';
+            try {
+                $bindings = function_exists('app_param') ? app_param('magicsmtp.policyBridges', []) : [];
+                if (!is_array($bindings)) throw new RuntimeException('Invalid feedback configuration', 403);
+                $signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
+                $this->feedbackBinding = MagicSmtpBounceIngress::authenticate((int)$this->server_id, $bindings, $payload, $rawBody, is_string($signature) ? $signature : '');
+                if ($this->feedbackBinding) $this->feedbackData = MagicSmtpBounceIngress::feedbackData($payload);
+            } catch (Throwable $failure) {
+                $status = in_array((int)$failure->getCode(), [401, 403, 422], true) ? (int)$failure->getCode() : 403;
+                $this->outputWebhookResponse(false, $status === 401 ? 'Invalid feedback signature' : ($status === 403 ? 'Feedback binding rejected' : 'Invalid feedback payload'), $status);
+                return;
+            }
         }
 
         if (empty($eventData['recipient']) || !is_string($eventData['recipient']) || strlen($eventData['recipient']) > 320) {
@@ -193,11 +213,20 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         }
 
         if ($eventType === 'complaint') {
-            $this->processComplaint(array(
-                'email'         => $recipient,
-                'message_id'    => $messageId,
-                'complaint_raw' => $responseText,
-            ));
+            if (!is_string($messageId) || strlen($messageId) > 512 || !is_string($responseText)) {
+                $this->outputWebhookResponse(false, 'Invalid complaint payload', 422);
+                return;
+            }
+            try {
+                $processed = $this->processComplaint(array('email' => $recipient, 'message_id' => $messageId, 'complaint_raw' => $responseText));
+            } catch (Throwable $failure) {
+                $this->outputWebhookResponse(false, 'Complaint could not be recorded', 503);
+                return;
+            }
+            if ($this->feedbackBinding !== null && $processed !== true) {
+                $this->outputWebhookResponse(false, 'Complaint did not match an eligible delivery', 409);
+                return;
+            }
 
             $this->outputWebhookResponse(true, 'Complaint registered');
             return;
@@ -233,6 +262,12 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
      */
     public function processBounce(array $params)
     {
+        if ($this->feedbackBinding !== null) {
+            $proof = $this->signedFeedbackProof();
+            if (!$proof) return false;
+            return $this->persistCorrelatedBounce($params, $proof);
+        }
+
         $messageId = str_replace(['<', '>'], '', $params['message_id']);
         if (empty($messageId)) {
             return false;
@@ -258,14 +293,45 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
             return false;
         }
 
+        return $this->persistCorrelatedBounce($params, [
+            'campaign_id' => (int)$campaign->campaign_id,
+            'list_id' => (int)$campaign->list_id,
+            'subscriber_id' => (int)$deliveryLog->subscriber_id,
+        ]);
+    }
+
+    /** Signed callbacks serialize on a transactional native subscriber row. */
+    protected function persistCorrelatedBounce(array $params, array $proof): bool
+    {
+        if ($this->feedbackBinding === null) return $this->persistLockedBounce($params, $proof);
+        $transaction = $this->beginFeedbackTransaction($proof);
+        try {
+            $processed = $this->persistLockedBounce($params, $proof);
+            if ($processed) $transaction->commit(); else $transaction->rollback();
+            return $processed;
+        } catch (Throwable $failure) {
+            if ($transaction->getActive()) $transaction->rollback();
+            throw $failure;
+        }
+    }
+
+    private function persistLockedBounce(array $params, array $proof): bool
+    {
+        // Fresh reads under the lock protect duplicate and partial-effect retries.
+        $campaign = Campaign::model()->findByPk((int)$proof['campaign_id']);
+        if (!$campaign || (int)$campaign->list_id !== (int)$proof['list_id']) return false;
+        if ($this->feedbackBinding !== null && ((int)$campaign->customer_id !== $this->feedbackBinding['customer_id']
+            || (string)$campaign->campaign_uid !== $proof['campaign_uid']
+            || !in_array($proof['server_id'], $this->feedbackBinding['server_ids'], true))) return false;
         $subscriber = ListSubscriber::model()->findByAttributes([
             'list_id'       => $campaign->list_id,
-            'subscriber_id' => $deliveryLog->subscriber_id,
+            'subscriber_id' => (int)$proof['subscriber_id'],
         ]);
         if (empty($subscriber)) {
             return false;
         }
         if (strcasecmp(trim((string)$subscriber->email), trim((string)$params['email'])) !== 0) return false;
+        if ($this->feedbackBinding !== null && (string)$subscriber->subscriber_uid !== $proof['subscriber_uid']) return false;
 
         $existing = CampaignBounceLog::model()->findByAttributes([
             'campaign_id'   => (int)$campaign->campaign_id,
@@ -320,6 +386,7 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
      */
     public function processComplaint(array $params)
     {
+        if ($this->feedbackBinding !== null) return $this->processSignedComplaint($params);
         $messageId = str_replace(['<', '>'], '', $params['message_id']);
         if (empty($messageId)) {
             return false;
@@ -360,6 +427,101 @@ class DeliveryServerMagicSmtp extends DeliveryServerSmtp
         $fbl->takeActionAgainstSubscriberWithCampaign($subscriber, $campaign);
 
         return true;
+    }
+
+    private function signedFeedbackProof(): ?array
+    {
+        $connection = Yii::app()->db;
+        $connection->setActive(true);
+        return MagicSmtpBounceIngress::correlate($connection->getPdoInstance(), (string)$connection->tablePrefix,
+            [CampaignDeliveryLog::model()->tableName(), CampaignDeliveryLogArchive::model()->tableName()], $this->feedbackBinding, $this->feedbackData);
+    }
+
+    private function beginFeedbackTransaction(array $proof)
+    {
+        $connection = Yii::app()->db;
+        if ($connection->getCurrentTransaction()) throw new RuntimeException('Feedback transaction is already active');
+        $transaction = $connection->beginTransaction();
+        try {
+            $prefix = (string)$connection->tablePrefix;
+            if (!preg_match('/^[A-Za-z0-9_]*$/D', $prefix)) throw new RuntimeException('Invalid feedback table prefix');
+            $pdo = $connection->getPdoInstance();
+            $lock = $pdo->prepare('SELECT subscriber_id FROM '.$prefix.'list_subscriber WHERE subscriber_id=? AND list_id=?'.($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : ''));
+            if (!$lock || !$lock->execute([$proof['subscriber_id'], $proof['list_id']]) || !$lock->fetchColumn()) throw new RuntimeException('Feedback subscriber is unavailable');
+            return $transaction;
+        } catch (Throwable $failure) {
+            if ($transaction->getActive()) $transaction->rollback();
+            throw $failure;
+        }
+    }
+
+    /** Native configurable action, with durable evidence and recoverable partial effects. */
+    private function processSignedComplaint(array $params): bool
+    {
+        $proof = $this->signedFeedbackProof();
+        if (!$proof) return false;
+        $transaction = null;
+        $nativeActionAttempted = false;
+        try {
+            $transaction = $this->beginFeedbackTransaction($proof);
+            $campaign = Campaign::model()->findByPk($proof['campaign_id']);
+            $subscriber = ListSubscriber::model()->findByAttributes(['list_id' => $proof['list_id'], 'subscriber_id' => $proof['subscriber_id']]);
+            if (!$campaign || !$subscriber || (int)$campaign->customer_id !== $this->feedbackBinding['customer_id']
+                || (int)$campaign->list_id !== $proof['list_id'] || (string)$campaign->campaign_uid !== $proof['campaign_uid']
+                || (string)$subscriber->subscriber_uid !== $proof['subscriber_uid']
+                || strcasecmp(trim((string)$subscriber->email), trim((string)$params['email'])) !== 0) {
+                $transaction->rollback(); return false;
+            }
+            $action = container()->get(OptionCronProcessFeedbackLoopServers::class);
+            $unsubscribe = $action->getSubscriberActionIsUnsubscribe();
+            if (!$unsubscribe && !$action->getSubscriberActionIsBlacklist()) {
+                // Delete destroys the correlation evidence; do not invent a durable receipt.
+                throw new RuntimeException('Configured complaint action has no durable proof');
+            }
+            $ownBlacklist = !$unsubscribe && $campaign->customer && $campaign->customer->getGroupOption('lists.can_use_own_blacklist', 'no') === 'yes';
+            $attributes = ['campaign_id' => $proof['campaign_id'], 'subscriber_id' => $proof['subscriber_id']];
+            $expectedStatus = $unsubscribe ? ListSubscriber::STATUS_UNSUBSCRIBED : ListSubscriber::STATUS_BLACKLISTED;
+            if ($subscriber->status === $expectedStatus && CampaignComplainLog::model()->findByAttributes($attributes)
+                && (!$unsubscribe || CampaignTrackUnsubscribe::model()->findByAttributes($attributes))
+                && (!$ownBlacklist || CustomerEmailBlacklist::model()->findByAttributes(['customer_id' => $this->feedbackBinding['customer_id'], 'email' => $subscriber->email]))) {
+                $transaction->commit(); return true;
+            }
+            $nativeActionAttempted = true;
+            $action->takeActionAgainstSubscriberWithCampaign($subscriber, $campaign);
+            $fresh = ListSubscriber::model()->findByAttributes(['list_id' => $proof['list_id'], 'subscriber_id' => $proof['subscriber_id']]);
+            if (!$fresh || $fresh->status !== $expectedStatus) throw new RuntimeException('Complaint protection is not persisted');
+            if ($ownBlacklist && !CustomerEmailBlacklist::model()->findByAttributes(['customer_id' => $this->feedbackBinding['customer_id'], 'email' => $fresh->email])) {
+                throw new RuntimeException('Customer complaint protection is not persisted');
+            }
+            // The native unsubscribe action returns early for an already-unsubscribed
+            // subscriber. Repair only the exact authenticated campaign's missing logs.
+            if ($unsubscribe && !CampaignTrackUnsubscribe::model()->findByAttributes($attributes)) {
+                $track = new CampaignTrackUnsubscribe();
+                $track->campaign_id = $proof['campaign_id']; $track->subscriber_id = $proof['subscriber_id'];
+                $track->note = 'Unsubscribed via signed Magic SMTP feedback';
+                $track->ip_address = (string)request()->getUserHostAddress();
+                $track->user_agent = StringHelper::truncateLength((string)request()->getUserAgent(), 255);
+                if (!$track->save(false)) throw new RuntimeException('Complaint unsubscribe tracking failed');
+            }
+            if (!CampaignComplainLog::model()->findByAttributes($attributes)) {
+                $log = new CampaignComplainLog();
+                $log->campaign_id = $proof['campaign_id']; $log->subscriber_id = $proof['subscriber_id'];
+                $log->message = EmailBlacklist::ABUSE_COMPLAINT_REASON;
+                if (!$log->save(false)) throw new RuntimeException('Complaint tracking failed');
+            }
+            if (!CampaignComplainLog::model()->findByAttributes($attributes)
+                || ($unsubscribe && !CampaignTrackUnsubscribe::model()->findByAttributes($attributes))) throw new RuntimeException('Complaint tracking is not persisted');
+            $transaction->commit();
+            return true;
+        } catch (Throwable $failure) {
+            if ($transaction && $transaction->getActive()) $transaction->rollback();
+            if ($nativeActionAttempted && $transaction && !$transaction->getActive()) {
+                // Native saveStatus adjusts a derived cache before its SQL write.
+                // Mark only this list for rebuild after rollback, never mid-transaction.
+                try { Lists::flushSubscribersCountCacheByListsIds([$proof['list_id']]); } catch (Throwable $cacheFailure) {}
+            }
+            throw $failure;
+        }
     }
 
     /**
