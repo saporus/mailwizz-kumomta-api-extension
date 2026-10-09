@@ -13,10 +13,38 @@ if (!defined('MW_PATH')) {
  */
 require_once __DIR__ . '/MagicSmtpCooldown.php';
 require_once __DIR__ . '/MagicSmtpShortRetry.php';
+require_once __DIR__ . '/MagicSmtpMinuteQuota.php';
 require_once dirname(__DIR__) . '/MagicSmtpPolicyRuntime.php';
 
 class DeliveryServerMagicSmtpWebApi extends DeliveryServer
 {
+    // MAGIC_SMTP_MINUTE_QUOTA_V1: keep the native key, mutex, limits and ledger.
+    protected function createMinuteQuota(): MagicSmtpMinuteQuota
+    {
+        $serverId = (int)$this->server_id;
+        return new MagicSmtpMinuteQuota(cache(), mutex(), static function () use ($serverId): array {
+            return Yii::app()->getDb()->createCommand()
+                ->select('UNIX_TIMESTAMP(NOW(6)) AS quota_now, COUNT(*) AS quota_used')
+                ->from(DeliveryServerUsageLog::model()->tableName())
+                ->where('server_id = :serverId AND date_added >= DATE_FORMAT(NOW(), "%Y-%m-%d %H:%i:00") AND date_added < DATE_FORMAT(NOW() + INTERVAL 1 MINUTE, "%Y-%m-%d %H:%i:00")', [':serverId' => $serverId])
+                ->queryRow();
+        });
+    }
+
+    public function getMinuteQuotaLeft(bool $useMutex = true): int
+    {
+        if (!$this->getCanHaveMinuteQuota()) return PHP_INT_MAX;
+        $key = sha1(sprintf($this->_minuteQuotaAccessKey, (int)$this->server_id));
+        return $this->createMinuteQuota()->remaining($key, (int)$this->minute_quota, false, $useMutex);
+    }
+
+    public function decreaseMinuteQuota(int $by = 1, bool $useMutex = true): int
+    {
+        if (!$this->getCanHaveMinuteQuota()) return PHP_INT_MAX;
+        $key = sha1(sprintf($this->_minuteQuotaAccessKey, (int)$this->server_id));
+        return $this->createMinuteQuota()->remaining($key, (int)$this->minute_quota, true, $useMutex);
+    }
+
     private $shortRetryGuard;
 
     // Only a patched normal campaign worker can opt in with native eligibility checks.
