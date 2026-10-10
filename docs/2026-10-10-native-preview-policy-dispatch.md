@@ -1,6 +1,6 @@
 # Native campaign and template previews with recipient-policy bindings
 
-Status: local candidate verified; production publication and live user-triggered preview acceptance are pending. The 2027 commercial programme remains paused.
+Status: published to servermail2.com at 08:00:45 UTC on 2026-10-10 and independently read back at 08:01:27 UTC. A user-triggered live preview remains unverified. The 2027 commercial programme remains paused.
 
 ## Problem and verified native call sites
 
@@ -44,6 +44,12 @@ No demo UI, account fields or seed structure changes are required. Existing/new 
 
 ## Publication and rollback
 
-Publication is pending at this checkpoint. Deploy only the changed runtime after verifying the recorded pre-change hash, backup, owner/group/mode and targeted checks. No schema migration, service restart, campaign change, API-key change or Kumo engine change is part of this correction.
+Only the runtime file was published. Its verified SHA-256 is `e11e9eaa76f0c5f6d60fb20b5d9554c76624a6cf35b4ff22b4de912036a00bb0`; uid/gid 1003, mode 0644 and extended attributes were preserved. Seventeen unchanged native/extension source hashes were checked before and after the atomic replacement. The original file and publication evidence are retained privately under `/root/magicsmtp-policy-runtime-backup-20261010-v1`.
 
-Rollback restores only the saved runtime file and its metadata. Preserve all current policy/dispatch records, account settings, accepted messages, queues and audit evidence. A user-triggered preview that has already been accepted must not be resent automatically. Root release documentation will record actual publication hashes and postflight evidence separately.
+All nine focused PHP fixtures passed with installed PHP 8.1.33 in a network-isolated namespace before publication. The private publisher's thirteen atomic-write/diff/concurrency fault tests passed locally. No licensed MailWizz source was uploaded or committed. An initial staging attempt created only an empty private `before.php` placeholder; its exact state was inspected and reconciled before completing the upload. Production was not touched by that staging error.
+
+Postflight loaded the installed extension under MailWizz 2.7.3 in a read-only database transaction: the policy schema and enabled customer binding remained healthy and scheduler verification passed. The PHP-FPM master remained active with the same PID; inspected PHP configuration hashes were unchanged and timestamps preceded the master start. Source configuration enables timestamp revalidation every two seconds. This supports expected activation on the next web request; it is not a direct observation of cached opcode or live email acceptance. No service restart was needed or performed.
+
+Manifest SHA-256: `26f87f2cc153f24a334f73fc4cb8c31a3f205d6af24e7fa37184be26797c7253`; publisher SHA-256: `f2dc477f809f647e934ad5cda27cd44cdb27e91c0b2a53f45ac84750053894c6`. Private receipts and the immutable bundle remain in the parent workspace's `outputs/direct-policy-coordination-20261010/`. No schema migration, campaign change, API-key change or Kumo engine change was performed.
+
+Rollback restores only the saved runtime file and its metadata. The pinned private publisher at `/var/tmp/magicsmtp-policy-runtime-20261010-v1/publish-policy-runtime.py` supports `--mode rollback --manifest-sha256 26f87f2cc153f24a334f73fc4cb8c31a3f205d6af24e7fa37184be26797c7253`; inspect current state and authorize rollback before invoking it. Preserve all current policy/dispatch records, account settings, accepted messages, queues and audit evidence. A user-triggered preview that has already been accepted must not be resent automatically.
