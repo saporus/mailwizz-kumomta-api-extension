@@ -2,6 +2,8 @@
 
 Recipient-policy source 1.2.0 adds `policy_bridge_runtime_test.php`, `policy_callback_runtime_test.php`, `policy_correlation_runtime_test.php` and `policy_disabled_runtime_test.php`. The disabled fixture proves that absent bindings do not access the database, change selectors/reports/completion or record dispatch. Store/correlation fixtures require PDO SQLite. On the local Windows runtime use `php -d extension=php_pdo_sqlite.dll tests/policy_bridge_runtime_test.php` (likewise for correlation). The separately invoked `policy_scheduler_runtime_test.php PRIVATE_CANDIDATE_DIRECTORY` executes actual privately prepared MailWizz scheduler files. See [policy installation and acceptance](../docs/recipient-policy-bridge-1.2.0.md). Never publish the licensed candidate source used by that fixture.
 
+`policy_interactive_test_runtime_test.php` exercises native campaign/template preview context through the real extension send method, with synthetic HTTP and isolated SQLite. It covers authenticated POST routes, native delivery purpose/object ownership, customer-scoped bindings, scheduler readiness and source drift, partial campaign context, CLI retry semantics, storage failure, unchanged campaign proof/idempotency, and gateway policy refusal. Run it with PDO SQLite as above. Its temporary scheduler marker files are synthetic; it neither loads licensed native application sources nor sends email. This change does not exempt server-validation routes, ordinary web sends or campaign workers. Kumo's normal admission and demo execution restrictions remain in force; see the [native preview correction and acceptance record](../docs/2026-10-10-native-preview-policy-dispatch.md).
+
 Run each standalone fixture with PHP 8.1 or newer:
 
 ```sh

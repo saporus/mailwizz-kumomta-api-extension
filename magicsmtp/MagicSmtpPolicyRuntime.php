@@ -63,10 +63,41 @@ final class MagicSmtpPolicyRuntime
     {
         $bridge=self::bridge();
         if (!$bridge || !$bridge->hasBindingForServer((int)$server->server_id)) return;
+        if (self::isNativeInteractiveTest($server,$params,$bridge)) return;
         $campaign=$params['campaign']??null;
         if (!$campaign && !empty($params['campaignUid'])) $campaign=Campaign::model()->findByAttributes(['campaign_uid'=>$params['campaignUid']]);
         if (!$campaign) throw new RuntimeException('Policy dispatch requires a campaign');
         $bridge->recordDispatch((int)$server->server_id,(int)$campaign->customer_id,$recipient,$messageId,(string)$campaign->campaign_uid,(string)($params['subscriberUid']??''));
+    }
+    /**
+     * Native campaign/template previews have no campaign-recipient dispatch to
+     * correlate. Recognize the authenticated native call path, never a payload
+     * flag or subject. Their actual recipient still passes normal API admission
+     * and recipient policy; no synthetic subscriber or dispatch proof is made.
+     */
+    private static function isNativeInteractiveTest($server,array $params,MagicSmtpPolicyBridge $bridge): bool
+    {
+        if (!function_exists('is_cli') || is_cli() || !($server instanceof DeliveryServer)) return false;
+        foreach (['campaign','campaignUid','subscriberUid','subscriber'] as $key) {
+            if (array_key_exists($key,$params) && $params[$key]!==null && $params[$key]!=='') return false;
+        }
+        if (!function_exists('apps') || !apps()->isAppName('customer') || !request()->getIsPostRequest()) return false;
+        $actor=customer();
+        if ($actor->isGuest || ($customerId=(int)$actor->getId())<1) return false;
+        $controller=Yii::app()->getController();
+        if (!$controller || !($action=$controller->getAction())) return false;
+        $controllerId=$controller->getId(); $actionId=$action->getId();
+        $object=$server->getDeliveryObject(); $purpose=$server->getDeliveryFor();
+        $campaignTest=$controllerId==='campaigns' && in_array($actionId,['test','bulk_action'],true)
+            && $purpose===DeliveryServer::DELIVERY_FOR_CAMPAIGN_TEST && $object instanceof Campaign;
+        $templateTest=$controllerId==='templates' && $actionId==='test'
+            && $purpose===DeliveryServer::DELIVERY_FOR_TEMPLATE_TEST && $object instanceof CustomerEmailTemplate;
+        if ((!$campaignTest && !$templateTest) || (int)$object->customer_id!==$customerId) return false;
+        $binding=$bridge->bindingForServer((int)$server->server_id,null,$customerId);
+        if (!$binding || empty($binding['enabled'])) return false;
+        // Preserve fail-closed behavior if the configured policy store is broken.
+        $bridge->store()->ready();
+        return self::schedulerVerified($binding);
     }
     public static function effective($campaign,$subscriber): ?array
     {
