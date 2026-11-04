@@ -397,12 +397,19 @@ class DeliveryServerMagicSmtpWebApi extends DeliveryServer
         $sent = [];
 
         try {
+            if ($this->getMailer()->getActiveMailer() === 'DummyMailer') {
+                throw new Exception('Magic SMTP cannot submit a message from the simulation mailer. Select a real system mailer.');
+            }
+
             // NOTE: tenant identity comes from the API key. The panel gateway forces the
             // trusted X-KumoMTA-Tenant tag server-side (and strips any client-supplied
             // one), so we no longer set it here.
 
             // Compile raw RFC822/MIME message
             $rawMessage = $this->getMailer()->getEmailMessage($params);
+            if (trim($rawMessage) === '') {
+                throw new Exception('Magic SMTP message rendering produced empty MIME content. Review the system mailer and campaign content.');
+            }
 
             // Fetch unique generated message ID
             $messageId  = $this->getMailer()->getEmailMessageId();

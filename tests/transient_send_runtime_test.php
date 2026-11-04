@@ -35,6 +35,7 @@ namespace {
             public $logs = [];
             function findEmailAndName($v) { return [$v, 'Fixture']; }
             function getEmailMessage($v) { return 'Synthetic fixture only'; }
+            function getActiveMailer() { return 'SwiftMailer'; }
             function getEmailMessageId() { return '<fixture@fixture.invalid>'; }
             function addLog($v) { $this->logs[] = $v; }
         }; }

@@ -85,6 +85,7 @@ namespace {
     class FakeMailer
     {
         public $logs=[];
+        public function getActiveMailer(){return 'SwiftMailer';}
         public function findEmailAndName($mailbox){return is_array($mailbox)?[(string)array_key_first($mailbox),(string)reset($mailbox)]:[(string)$mailbox,''];}
         public function getEmailMessage(array $params){return "From: sender@example.test\r\nTo: preview@example.test\r\nMessage-ID: <preview@example.test>\r\n\r\n".$params['body'];}
         public function getEmailMessageId(){return '<preview@example.test>';}

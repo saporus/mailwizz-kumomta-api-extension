@@ -6,9 +6,11 @@ namespace GuzzleHttp {
         public static $mode = 'success';
         public $lastUrl;
         public $lastOptions = array();
+        public $calls = 0;
 
         public function post($url, array $options)
         {
+            $this->calls++;
             $this->lastUrl = $url;
             $this->lastOptions = $options;
             if (self::$mode === 'retryable-503') {
@@ -78,13 +80,26 @@ namespace {
         foreach (glob($runtime . '/*') as $file) unlink($file);
         rmdir($runtime);
     });
-    function is_cli() { return true; }
+    $cli = true;
+    $policyLookups = 0;
+    function is_cli() { return $GLOBALS['cli']; }
+    function app_param($key, $default = null) {
+        $GLOBALS['policyLookups']++;
+        return $default;
+    }
     class Yii { static function getPathOfAlias($alias) { return $GLOBALS['runtime']; } }
 
 
     class FakeMailer
     {
         public $log = '';
+        public $activeMailer = 'SwiftMailer';
+        public $rawMessageOverride = null;
+        public $renderError = null;
+        public $compiled = 0;
+        public $messageIdReads = 0;
+
+        public function getActiveMailer() { return $this->activeMailer; }
 
         public function findEmailAndName($mailbox)
         {
@@ -97,11 +112,15 @@ namespace {
 
         public function getEmailMessage(array $params)
         {
+            $this->compiled++;
+            if ($this->renderError !== null) throw new \Exception($this->renderError);
+            if ($this->rawMessageOverride !== null) return $this->rawMessageOverride;
             return "From: Sender <sender@example.test>\r\nTo: Recipient <recipient@example.test>\r\nMessage-ID: <mailwizz-id@example.test>\r\n\r\n" . $params['body'];
         }
 
         public function getEmailMessageId()
         {
+            $this->messageIdReads++;
             return '<mailwizz-id@example.test>';
         }
 
@@ -116,6 +135,7 @@ namespace {
         public $hostname = 'https://enterprise.example/ui/api/ingest/email';
         public $password = 'tenant-api-key';
         public $timeout = 30;
+        public $usage = 0;
         protected $mailer;
 
         public function __construct()
@@ -135,6 +155,7 @@ namespace {
 
         public function logUsage()
         {
+            $this->usage++;
         }
     }
 
@@ -210,6 +231,64 @@ namespace {
         'campaign UID is forwarded' => ($options['json']['campaign'] ?? null) === 'campaign-123',
         'subscriber UID is forwarded as recipient metadata' => ($options['json']['recipients'][0]['metadata']['subscriber_uid'] ?? null) === 'subscriber-456',
     );
+
+    $params = array(
+        'from' => array('sender@example.test' => 'Sender'),
+        'to' => array('recipient@example.test' => 'Recipient'),
+        'subject' => 'Synthetic rendering checks',
+        'body' => 'Synthetic body',
+        'campaignUid' => 'campaign-123',
+        'subscriberUid' => 'subscriber-456',
+    );
+    foreach (array(true, false) as $cli) {
+        foreach (array('' => '', 'whitespace' => " \r\n\t") as $label => $raw) {
+            $invalid = new TestableSendDeliveryServer();
+            $invalid->getMailer()->rawMessageOverride = $raw;
+            $policyLookups = 0;
+            $result = $invalid->send($params);
+            $checks[($cli ? 'CLI' : 'interactive') . ' rejects ' . ($label ?: 'empty') . ' MIME before dispatch'] =
+                $result === array() && $invalid->fakeClient->calls === 0 && $invalid->usage === 0
+                && $invalid->getMailer()->messageIdReads === 0 && $policyLookups === 0
+                && strpos($invalid->getMailer()->log, 'empty MIME content') !== false;
+        }
+        foreach (array('', 'random dummy output') as $raw) {
+            $dummy = new TestableSendDeliveryServer();
+            $dummy->getMailer()->activeMailer = 'DummyMailer';
+            $dummy->getMailer()->rawMessageOverride = $raw;
+            $policyLookups = 0;
+            $result = $dummy->send($params);
+            $checks[($cli ? 'CLI' : 'interactive') . ' rejects simulation mailer output length ' . strlen($raw)] =
+                $result === array() && $dummy->fakeClient->calls === 0 && $dummy->usage === 0
+                && $dummy->getMailer()->compiled === 0 && $policyLookups === 0
+                && strpos($dummy->getMailer()->log, 'simulation mailer') !== false;
+        }
+    }
+    $cli = true;
+    $mimeCases = array(
+        'plain text zero' => "From: sender@example.test\r\nTo: recipient@example.test\r\nContent-Type: text/plain\r\n\r\n0",
+        'Unicode HTML' => "From: sender@example.test\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n<p>Héllo 世界</p>",
+        'attachment multipart' => "From: sender@example.test\r\nContent-Type: multipart/mixed; boundary=fixture\r\n\r\n--fixture\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=fixture.bin\r\nContent-Transfer-Encoding: base64\r\n\r\nAAECAw==\r\n--fixture--\r\n",
+    );
+    foreach (array('SwiftMailer', 'SymfonyMailer') as $mailerName) {
+        foreach ($mimeCases as $label => $raw) {
+            $valid = new TestableSendDeliveryServer();
+            $valid->getMailer()->activeMailer = $mailerName;
+            $valid->getMailer()->rawMessageOverride = $raw;
+            $policyLookups = 0;
+            $result = $valid->send($params);
+            $checks[$mailerName . ' preserves ' . $label . ' byte for byte'] =
+                $result === array('message_id' => 'mailwizz-id@example.test') && $valid->fakeClient->calls === 1
+                && $valid->fakeClient->lastOptions['json']['content'] === $raw && $valid->usage === 1
+                && $valid->getMailer()->compiled === 1 && $policyLookups > 0
+                && $valid->fakeClient->lastOptions['headers']['Idempotency-Key'] === $expectedKey;
+        }
+    }
+    $invalid = new TestableSendDeliveryServer();
+    $invalid->getMailer()->renderError = 'Synthetic MIME rendering failure';
+    $policyLookups = 0;
+    $checks['renderer exceptions remain local failures without HTTP or dispatch'] =
+        $invalid->send($params) === array() && $invalid->fakeClient->calls === 0 && $policyLookups === 0
+        && $invalid->usage === 0 && $invalid->getMailer()->log === 'Synthetic MIME rendering failure';
 
     \GuzzleHttp\Client::$mode = 'retryable-503';
     $retryException = null;

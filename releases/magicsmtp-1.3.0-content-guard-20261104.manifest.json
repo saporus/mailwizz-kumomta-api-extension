@@ -1,0 +1,27 @@
+{
+  "archive": "magicsmtp-1.3.0-content-guard-20261104.zip",
+  "sha256": "8ee19c066d8d2578b0bfb369cc5f9d55846134f09b015fe5e8e52f096c5d1509",
+  "bytes": 54992,
+  "fileCount": 19,
+  "files": {
+    "magicsmtp/controllers/Magic_smtp_connectController.php": "5c972dd72364cd814e17a86888d3770475911ce26b431b9eb7f50b6fc2c27390",
+    "magicsmtp/MagicSmtpConnectRuntime.php": "087e58a692c5c6d2e45957f1e11afc5116b342349ab3b51109303e9f0fd30e88",
+    "magicsmtp/MagicSmtpDeliveryReportClarity.php": "95aea77262ef55397c60971bd89007a97aefc2f4a28aa4536cb59b433ebe2d5e",
+    "magicsmtp/MagicsmtpExt.php": "69a9efd8cfdcf5acad4fe69c2a319f78ad0b0bfe9bc3254bd1c7eacb20194e35",
+    "magicsmtp/MagicSmtpPolicyRuntime.php": "e11e9eaa76f0c5f6d60fb20b5d9554c76624a6cf35b4ff22b4de912036a00bb0",
+    "magicsmtp/models/DeliveryServerMagicSmtp.php": "2cea2e9097b0895e5b81b1f5b88783f4261545db8777029c730bcb506a46862a",
+    "magicsmtp/models/DeliveryServerMagicSmtpWebApi.php": "1964a22adcbdd4f4b4a34023b44fa7b408487890a54283cf8d7eca8dc090dcec",
+    "magicsmtp/models/MagicSmtpBounceIngress.php": "975d9350c55dbcdfb63da344cd822a23e1fea7dc47b868696002cfca407a9fbc",
+    "magicsmtp/models/MagicSmtpConnectHttp.php": "434669d5be0f58b2b5c382248645137af74f53d5e287002d05edd1d00aff1395",
+    "magicsmtp/models/MagicSmtpConnectService.php": "0c70cae51f2a8a8b47766e8e73f46ed5a3adf72f4e520036e80d78a73fb5ec89",
+    "magicsmtp/models/MagicSmtpConnectStore.php": "efe6598edc10d7c8272e3638d2df70f374694fea0ddb5f9486a24ea698b4231c",
+    "magicsmtp/models/MagicSmtpCooldown.php": "7c76a1137c21b7d5c0931239d5ac9b6dc20fdc4bf891b144a3a66e8b107a5ff6",
+    "magicsmtp/models/MagicSmtpMinuteQuota.php": "d3ff72f0b16a428b9ad9de7916bc226d444bed9c5d7e1aea3a0190d5f193eba1",
+    "magicsmtp/models/MagicSmtpPolicyBridge.php": "56157a5a9c5fe96a6e0f33e06311490b37c20f983d0ed34f76aedf862723d14e",
+    "magicsmtp/models/MagicSmtpPolicyStore.php": "f87ea88fb0fbd87e33ce343e9d46c93700d44bc2c4a4dc5e1e816947787a8c5d",
+    "magicsmtp/models/MagicSmtpShortRetry.php": "cb3fd8cdd340b6b473100debb3eac5e98dca6e0eef74003fcb01a48453cc5a9a",
+    "magicsmtp/views/connect.php": "302d3f13ad39aa09a42bf7b1a1fabcb3fb0d8ce8f9adc2e83c34b01e84ba1a59",
+    "magicsmtp/views/form-magic-smtp-web-api.php": "9d617dabb7a0fe6582cb2c496a4eecd029c6ae9ef3eccd7adcc1c8f44bbcf416",
+    "magicsmtp/views/form-magic-smtp.php": "10b1426a54819f44fc08f607a4290c8e1b72846224b34449e67da528e9b7d636"
+  }
+}

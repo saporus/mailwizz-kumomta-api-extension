@@ -37,6 +37,7 @@ namespace {
         public $hostname = 'https://fixture.invalid', $password = 'synthetic-key', $timeout = 5, $usage = 0, $mailer;
         function __construct() { $this->mailer = new class {
             public $compiled = 0, $logs = [];
+            function getActiveMailer() { return 'SwiftMailer'; }
             function findEmailAndName($v) { return [$v, 'Fixture']; }
             function getEmailMessage($v) { return 'MIME-generation-' . ++$this->compiled; }
             function getEmailMessageId() { return '<stable@fixture.invalid>'; }
