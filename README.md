@@ -31,6 +31,7 @@ This extension does not guarantee inbox placement or eliminate SMTP from final d
 - MailWizz 2.7.3
 - PHP 8.1 for both PHP-FPM and CLI/cron processing
 - Extension version 1.3.0 (MailWizz 2.7.3 / PHP 8.1, including self-service connection checks)
+- Extension version 1.3.1 adds the separately qualified MailWizz 2.8.1 / PHP 8.3 pairing profile, requiring the exact native scheduler integration described below.
 
 Other MailWizz or PHP combinations have not yet been included in the verified compatibility matrix.
 
@@ -38,13 +39,19 @@ Additional installation verification (2026-09-29): MailWizz 2.8.1 with PHP 8.3 p
 
 Additional 1.3.0 installation verification (2026-11-06): the complete content-guard release passed twenty-three synthetic suites on PHP 8.3.36, exact 2.8.1 native quota/interface checks, supported extension Update and enabled-version browser verification. Existing delivery configuration and limits were preserved. Optional policy scheduling and self-service pairing remain disabled/unqualified on 2.8.1; this transport update does not extend their compatibility. See the [parity rollout and acceptance limits](docs/2026-11-06-installation-parity.md).
 
+The later 1.3.1 qualification supersedes that 1.3.0 pairing limitation only for the [exact inspected 2.8.1 scheduler profile](docs/policy-scheduler-281.md). Its [rollout record](docs/2026-11-06-pairing-281-rollout.md) distinguishes target-runtime tests, normal-login demo acceptance and the separate administrator enrollment action. Unknown scheduler sources remain blocked; installation alone does not enable or pair customers.
+
 ## Installation
+
+### Source update 1.3.1: qualified MailWizz 2.8.1 pairing
+
+The separate 2.8.1 profile retains native suppression and quota checks, with an additional policy recheck after rendering and before quota/send-group side effects. Temporary holds and failed required checks remain retryable. Follow the [preparation, qualification and rollback guide](docs/policy-scheduler-281.md), preserve a backup, install a new installation-specific private encryption key and accepted profile, and then enable connections from the normal backend page. Do not reuse another installation's secrets or scheduler receipts. Native 2.7.3 behavior remains unchanged.
 
 ### Source update 1.3.0: Connect MailWizz
 
 Customers with native delivery-server management access can pair their account from the normal customer page, then discover and add eligible servers in the normal MagicSMTP tenant panel. An installation administrator enables the feature once with protected encryption settings and a verified scheduler profile. One shared callback serves the explicitly authorized servers; no separate tenant webhook is required for each server. Existing bindings and secrets are preserved. See the [setup, permissions, demo acceptance and recovery guide](docs/self-service-connect-mailwizz.md).
 
-Deploy the complete current source and run MailWizz's native extension **Update** action. The older 1.1.5 release archive linked below does not include this feature. Self-service policy pairing is verified on MailWizz 2.7.3 / PHP 8.1; the older transport-only 2.8.1 check does not extend to this feature.
+Deploy the complete current source and run MailWizz's native extension **Update** action. Older 1.1.5 archives do not include this feature. Self-service policy pairing is verified on MailWizz 2.7.3 / PHP 8.1; 2.8.1 requires the separate 1.3.1 profile above.
 
 ### Source update 1.2.0: signed recipient policy synchronization
 
@@ -59,7 +66,7 @@ Customer create submission and subsequent saved update-form rendering were verif
 No SaaS demo resources, credentials, migration, or production-execution permissions are changed. Synthetic tests do not use real API keys or send email. Existing and new tenant demo workspace integration was not rerun for this standalone MailWizz-only correction; those platform boundaries remain unchanged.
 
 1. Back up your MailWizz files and database.
-2. Download `magicsmtp-1.1.5.zip` from the [latest GitHub release](https://github.com/saporus/mailwizz-kumomta-api-extension/releases/latest).
+2. Download the current [magicsmtp-1.3.1.zip](releases/magicsmtp-1.3.1.zip) and verify its [SHA-256 manifest](releases/magicsmtp-1.3.1.manifest.json).
 3. In MailWizz, open **Backend > Extend > Extensions**.
 4. Upload the release ZIP and enable **Magic SMTP Web API Delivery Server**.
 5. Create a delivery server of type **Magic SMTP Web API**.

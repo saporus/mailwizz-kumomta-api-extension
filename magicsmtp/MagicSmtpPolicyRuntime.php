@@ -26,7 +26,16 @@ final class MagicSmtpPolicyRuntime
         $root=$common?dirname(dirname($common)):false;
         $manifest=$binding['scheduler_manifest']??null;
         if (!$root || !is_array($manifest) || ($manifest['contract']??'')!=='magic-smtp-policy-scheduler-v1' || ($manifest['acceptance']??'')!=='passed') return false;
-        if (!defined('MW_VERSION') || MW_VERSION!=='2.7.3' || ($manifest['mailwizz_version']??'')!==MW_VERSION) return false;
+        if (!defined('MW_VERSION') || ($manifest['mailwizz_version']??'')!==MW_VERSION) return false;
+        if (MW_VERSION==='2.8.1') {
+            // A separate inspected port, not a general version-range bypass.
+            $qualified=[
+                'apps/console/commands/SendCampaignsCommand.php'=>'96091aba524927bc6b0dd1b5f7ac241243a4a69180695ab546a1d5122c7353a2',
+                'apps/common/components/db/behaviors/CampaignQueueTableBehavior.php'=>'5fea83a34a648f6971b99aa4994e888214381aa05fcb73c6ce8d27175e59ae8f',
+            ];
+            if (($manifest['qualification_profile']??'')!=='mailwizz-2.8.1-policy-20261106' || !is_array($manifest['sha256']??null) || count($manifest['sha256'])!==count($qualified)) return false;
+            foreach($qualified as$file=>$sha)if(($manifest['sha256'][$file]??null)!==$sha)return false;
+        } elseif (MW_VERSION!=='2.7.3') return false;
         if (hooks()->hasFilters('console_send_campaigns_command_count_subscribers') || hooks()->hasFilters('console_send_campaigns_command_find_subscribers')) return false;
         $files=['apps/console/commands/SendCampaignsCommand.php','apps/common/components/db/behaviors/CampaignQueueTableBehavior.php'];
         foreach ($files as $file) {
@@ -35,6 +44,31 @@ final class MagicSmtpPolicyRuntime
             if (strpos((string)file_get_contents($root.'/'.$file),'MAGIC_SMTP_POLICY_SCHEDULER_V1')===false) return false;
         }
         return true;
+    }
+    /** The qualified 2.8.1 worker invokes this before rendering and again before quota. */
+    public static function beforeNativeSend281($campaign,$subscriber): ?array
+    {
+        try {
+            if (!defined('MW_VERSION') || MW_VERSION!=='2.8.1') throw new RuntimeException('Unexpected policy worker version');
+            $bridge=self::bridge();
+            if (!$bridge) return null;
+            $covered=false;
+            foreach ($bridge->bindings() as $binding) {
+                if ((int)$binding['customer_id']!==(int)$campaign->customer_id) continue;
+                $covered=true;
+                if (!self::schedulerVerified($binding)) {
+                    throw new RuntimeException('Recipient policy scheduler readiness changed');
+                }
+            }
+            if (!$covered) return null;
+            $effect=$bridge->store()->effective((int)$campaign->customer_id,MagicSmtpPolicyBridge::recipient((string)$subscriber->email),$bridge->now());
+            if ($effect && $effect['action']!=='permanent') throw new RuntimeException('Recipient policy temporarily holds this subscriber');
+            return $effect;
+        } catch (Throwable $failure) {
+            // Native code99 leaves the recipient retryable. Never spend quota,
+            // delete queue state or create a giveup after an unavailable check.
+            throw new Exception('Recipient policy check unavailable or subscriber held; retry later.',99,$failure);
+        }
     }
     public static function correlate(array $binding,array $data): ?array
     {

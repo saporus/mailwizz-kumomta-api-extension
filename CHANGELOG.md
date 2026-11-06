@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1 - 2026-11-06
+
+- Qualify a separate, exact-source MailWizz 2.8.1 policy scheduler profile for connection pairing; preserve the existing 2.7.3 readiness behavior.
+- Recheck policy after rendering and before native send-group claims/quota debit on that profile. Late temporary holds and unavailable checks retain code-99 retryability without successful or terminal delivery records.
+- Add dedicated source preparation, guarded deployment/rollback, actual native-method fixtures, target-runtime qualification and normal-page acceptance documentation. Unknown versions, source drift and custom selector overrides remain gated.
+- Retain sending limits, native suppression, credentials and manual customer/server pairing. The release does not automatically create connections or send email.
+
 ## 1.1.5 - 2026-09-19
 
 - Include the production-tested shared Retry-After cooldown, isolated by API endpoint and tenant key, without sleeping campaign workers.

@@ -6,7 +6,7 @@ $smtpModel = file_get_contents($root . '/magicsmtp/models/DeliveryServerMagicSmt
 $webApiModel = file_get_contents($root . '/magicsmtp/models/DeliveryServerMagicSmtpWebApi.php');
 
 $checks = array(
-    'release version is 1.3.0' => strpos($bootstrap, "public \$version = '1.3.0';") !== false,
+    'release version is 1.3.1' => strpos($bootstrap, "public \$version = '1.3.1';") !== false,
     'DSWH filter is registered' => strpos($bootstrap, "addFilter('dswh_process_map'") !== false,
     'DSWH processor callback is mapped' => strpos($bootstrap, "array(\$this, '_processDswhWebhook')") !== false,
     'MailWizz core controller is not modified' => strpos($bootstrap, 'file_put_contents') === false,
