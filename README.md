@@ -36,6 +36,8 @@ Other MailWizz or PHP combinations have not yet been included in the verified co
 
 Additional installation verification (2026-09-29): MailWizz 2.8.1 with PHP 8.3 passed all synthetic extension regression suites, real-application class/type registration, runtime permissions, enabled-extension UI, and API configuration-form checks. This is no-send compatibility verification, not end-to-end delivery validation. Use the matching 2.8.1 retry bridge below.
 
+Additional 1.3.0 installation verification (2026-11-06): the complete content-guard release passed twenty-three synthetic suites on PHP 8.3.36, exact 2.8.1 native quota/interface checks, supported extension Update and enabled-version browser verification. Existing delivery configuration and limits were preserved. Optional policy scheduling and self-service pairing remain disabled/unqualified on 2.8.1; this transport update does not extend their compatibility. See the [parity rollout and acceptance limits](docs/2026-11-06-installation-parity.md).
+
 ## Installation
 
 ### Source update 1.3.0: Connect MailWizz
